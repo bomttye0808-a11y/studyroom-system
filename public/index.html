@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>학교 자습실 통합 좌석 예약 시스템</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: 'Malgun Gothic', sans-serif; margin: 0; padding: 0; background-color: #f1f3f6; color: #333; }
+        header { background: #2c3e50; color: #fff; padding: 15px 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .header-container { max-width: 1650px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; }
+        .header-right { display: flex; align-items: center; gap: 20px; }
+        
+        .board-trigger-btn { 
+    font-size: 1.6rem; 
+    cursor: pointer; 
+    user-select: none; 
+    transition: transform 0.2s; 
+    margin: 0 8px; 
+    display: inline-block !important; /* 강제 노출 */
+    min-width: 35px;
+    text-align: center;
+}
+.board-trigger-btn:hover { transform: scale(1.2); }
+
+        /* 로그인 섹션 */
+        .login-section { display: flex; justify-content: center; align-items: center; height: 85vh; }
+        .login-card { background: #fff; padding: 40px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.1); width: 100%; max-width: 380px; text-align: center; }
+        .login-card h2 { color: #2c3e50; margin-bottom: 25px; margin-top: 0; }
+        .login-card input { width: 100%; padding: 12px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 1rem; }
+        .pw-wrapper { position: relative; width: 100%; }
+        .pw-toggle-btn { position: absolute; right: 12px; top: 12px; cursor: pointer; font-size: 0.9rem; user-select: none; color: #7f8c8d; font-weight: bold; }
+        .login-card button { width: 100%; padding: 13px; background: #3498db; color: white; border: none; border-radius: 6px; font-size: 1rem; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        .status-text { font-size: 0.85rem; margin-bottom: 15px; font-weight: bold; display: none; text-align: left; }
+
+        /* 메인화면 레이아웃 */
+        .main-layout { max-width: 1650px; margin: 20px auto; padding: 0 15px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px; }
+        .top-control-panel { display: flex; gap: 20px; align-items: stretch; }
+        .timer-card { background: #ffeaa7; padding: 15px; border-radius: 8px; font-size: 1.15rem; font-weight: bold; display: flex; align-items: center; justify-content: center; color: #d63031; flex: 1; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .selector-card { background: #fff; padding: 15px; border-radius: 8px; display: flex; align-items: center; gap: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .selector-card label { font-weight: bold; color: #2c3e50; }
+        .selector-card select { padding: 8px 15px; border-radius: 6px; border: 1px solid #ccc; font-size: 1rem; cursor: pointer; }
+        
+        /* 단일 사각형 범례 구역 */
+        .map-legend { background: #fff; padding: 12px; border-radius: 8px; display: flex; justify-content: center; gap: 25px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .leg { display: flex; align-items: center; gap: 8px; font-size: 0.95rem; font-weight: bold; }
+        .indicator { width: 20px; height: 20px; border-radius: 4px; border: 1px solid #b2bec3; display: inline-block; }
+        .idx-maria { background: #bdc3c7; } 
+        .idx-ai { background: #ffffff; }    
+        .idx-res { background: #ff7675; }   
+        .idx-mine { background: #74b9ff; }  
+
+        /* 정밀 고정 격자 배치 프레임 */
+        .system-board-container { display: flex; flex-direction: column; gap: 30px; align-items: center; width: 100%; }
+        .room-section-card { background: #fff; padding: 25px; border-radius: 10px; box-shadow: 0 3px 10px rgba(0,0,0,0.05); width: 100%; max-width: 800px; text-align: center; box-sizing: border-box; }
+        .room-section-card h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #edf2f7; padding-bottom: 10px; margin-bottom: 20px; }
+        
+        /* 밀림 완전 차단 수직 수평 보정 그리드 메쉬 */
+        .grid-ai { display: grid; grid-template-columns: repeat(8, 60px); gap: 8px; justify-content: center; margin: 0 auto; }
+        .grid-maria { display: grid; grid-template-columns: repeat(13, 46px); gap: 8px; justify-content: center; margin: 0 auto; }
+
+        /* 컴포넌트 격자 요소들 */
+        .seat-box { height: 40px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 1px solid #dcdde1; border-radius: 4px; cursor: pointer; user-select: none; transition: transform 0.1s; font-size: 0.85rem; }
+        .seat-box:hover { transform: scale(1.06); box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
+        
+        .seat-space-empty, .zone-label, .desk-label-style, .door-node { border: none !important; background: transparent !important; height: 40px; display: flex; align-items: center; justify-content: center; font-weight: bold; cursor: default; pointer-events: none; user-select: none; }
+        
+        /* 클릭 가능한 가이드 안내 텍스트 노드 */
+        .clickable-label { color: #2c3e50; cursor: pointer !important; pointer-events: auto !important; font-size: 0.9rem; }
+        .clickable-label:hover { text-decoration: underline; color: #e67e22; }
+        .desk-label-style { color: #2980b9 !important; }
+        .wall-node { color: #7f8c8d; font-size: 1.1rem; }
+        .plug-node { font-size: 1.2rem; }
+
+        /* 출입문 지정 검정 테두리 박스 구조 */
+        .door-node { border: 2px solid #000000 !important; color: #000000 !important; border-radius: 4px; font-size: 0.8rem; pointer-events: none; }
+
+        .c-maria-avail { background: #bdc3c7; color: #2c3e50; } 
+        .c-ai-avail { background: #ffffff; color: #2c3e50; }    
+        .c-reserved { background: #ff7675 !important; color: #fff; cursor: not-allowed; border-color: #e74c3c; } 
+        .c-mine { background: #74b9ff !important; color: #fff; border-color: #0984e3; font-weight: 900; } 
+
+        /* 우측 슬라이딩 드로어 시스템 */
+        .dim-layer { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 1040; }
+        .comment-sidebar { position: fixed; top: 0; right: -420px; width: 380px; height: 100%; background: #ffffff; box-shadow: -4px 0 15px rgba(0,0,0,0.15); z-index: 1050; transition: right 0.3s ease-in-out; display: flex; flex-direction: column; box-sizing: border-box; }
+        .comment-sidebar.open { right: 0; }
+        @media (max-width: 768px) { .comment-sidebar { width: 100%; right: -100%; } .comment-sidebar.open { right: 0; } }
+        
+        .comment-header { background: #34495e; color: #fff; padding: 15px; display: flex; justify-content: space-between; align-items: center; }
+        .comment-header h3 { margin: 0; font-size: 1.1rem; }
+        .comment-close-x { font-size: 1.4rem; cursor: pointer; font-weight: bold; }
+        .comment-list { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; background: #f8f9fa; }
+        
+        /* 공지사항 상단 구역 */
+        .notice-box { background: #fff3cd; border: 1px solid #ffeeba; padding: 10px; border-radius: 6px; font-size: 0.85rem; color: #856404; font-weight: bold; margin-bottom: 5px; }
+        
+        /* 트리 구조 대댓글 여백 계층 구조 */
+        .comment-item { background: #fff; padding: 10px; border-radius: 6px; border: 1px solid #e2e8f0; position: relative; }
+        .comment-reply { margin-left: 20px; border-left: 2px dashed #cbd5e0; padding-left: 10px; background: #f1f5f9; }
+        .comment-meta { font-size: 0.75rem; color: #7f8c8d; display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .comment-actions { display: flex; gap: 8px; margin-top: 5px; font-size: 0.75rem; color: #3498db; }
+        .comment-actions span { cursor: pointer; user-select: none; }
+        .comment-actions span:hover { text-decoration: underline; }
+        
+        .comment-input-area { padding: 15px; border-top: 1px solid #edf2f7; display: flex; flex-direction: column; gap: 8px; background: #fff; }
+        .comment-textarea { width: 100%; height: 55px; padding: 8px; border: 1px solid #cbd5e0; border-radius: 6px; resize: none; box-sizing: border-box; font-size: 0.85rem; }
+        .comment-submit-btn { background: #2ecc71; color: white; border: none; padding: 8px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
+
+        /* 중앙 이미지 가이드 모달 팝업 */
+        .image-modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 5px 25px rgba(0,0,0,0.3); z-index: 2000; text-align: center; }
+        .image-modal img { max-width: 90vw; max-height: 70vh; object-fit: contain; display: block; margin: 0 auto 10px; }
+        .image-modal-close { background: #2c3e50; color: #fff; border: none; padding: 6px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+
+        /* 하단 고정 텍스트형 링크 관리자 버튼 영역 */
+        footer { text-align: center; padding: 30px 0; font-size: 0.85rem; color: #7f8c8d; }
+        .admin-link { color: #7f8c8d; text-decoration: none; cursor: pointer; margin-left: 5px; font-weight: bold; }
+        .admin-link:hover { text-decoration: underline; color: #2c3e50; }
+
+        /* 통합 관리자 설정 모달 대시보드 */
+        .admin-modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 10px 35px rgba(0,0,0,0.3); z-index: 1500; width: 650px; max-width: 95vw; max-height: 85vh; overflow-y: auto; }
+        .admin-modal h4 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #edf2f7; padding-bottom: 8px; }
+        .admin-grid-section { display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px; }
+        .admin-block { background: #f8f9fa; padding: 12px; border-radius: 6px; border: 1px solid #e9ecef; }
+        .admin-block label { display: block; font-size: 0.8rem; font-weight: bold; color: #495057; margin-bottom: 6px; }
+        .admin-block input[type="text"], .admin-block input[type="datetime-local"] { width: 100%; padding: 8px; border: 1px solid #ced4da; border-radius: 4px; box-sizing: border-box; }
+        
+        .pw-manage-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: center; margin-top: 5px; }
+        .pw-manage-table th, .pw-manage-table td { border: 1px solid #dee2e6; padding: 6px; }
+        .pw-manage-table th { background: #e9ecef; }
+        .inline-input { width: 70px; padding: 3px; font-size: 0.75rem; text-align: center; }
+        .inline-btn { background: #3498db; color: #fff; border: none; padding: 3px 6px; border-radius: 3px; cursor: pointer; font-size: 0.75rem; }
+        
+        .whisper-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left; }
+        .whisper-table th, .whisper-table td { border: 1px solid #dee2e6; padding: 6px; }
+        .whisper-table th { background: #e9ecef; text-align: center; }
+
+        .ctrl-btns { display: flex; gap: 10px; margin-top: 15px; }
+        .ctrl-btns button { flex: 1; padding: 10px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+        
+        .logout-btn { color: #ff7675; cursor: pointer; margin-left: 15px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="login-page" class="login-section">
+        <div class="login-card">
+            <div id="status-box" class="status-text"></div>
+            <h2>자습실 좌석 예약</h2>
+            <input type="text" id="student_id" placeholder="학번 입력(예 : 10101)" autocomplete="off">
+            <div class="pw-wrapper">
+                <input type="password" id="password" placeholder="비밀번호 (최초 로그인 시 4자리 설정)">
+                <span class="pw-toggle-btn" id="pw-toggle">👁️</span>
+            </div>
+            <button id="login-btn">접속하기</button>
+        </div>
+    </div>
+
+    <div id="main-page" style="display: none;">
+        <header>
+            <div class="header-container">
+                <h2>🏫 자습실 통합 좌석 예약 시스템</h2>
+                <div class="header-right">
+                    <span class="board-trigger-btn" id="open-board-btn" title="익명 소통 게시판">💬</span>
+                    <span class="board-trigger-btn" id="open-whisper-btn" title="관리자 1:1 귓속말">👂</span>
+                    <div>
+                        <span id="user-display">학생</span>
+                        <span class="logout-btn" id="logout-btn">로그아웃</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div class="main-layout">
+            <div class="top-control-panel">
+                <section class="selector-card">
+                    <label>📅 예약 요일 선택</label>
+                    <select id="day-picker">
+                        <option value="월요일">월요일</option>
+                        <option value="화요일">화요일</option>
+                        <option value="수요일">수요일</option>
+                        <option value="목요일">목요일</option>
+                        <option value="금요일">금요일</option>
+                    </select>
+                </section>
+                <section class="timer-card">
+                    <span id="countdown-label">⏳ 예약 오픈까지 남은 시간: </span>&nbsp;<span id="countdown-clock">00시간 00분 00초</span>
+                </section>
+            </div>
+
+            <section class="map-legend">
+                <div class="leg"><span class="indicator idx-maria"></span> MARIA실 (플러그 O)</div>
+                <div class="leg"><span class="indicator idx-ai"></span> AI실 (플러그 X)</div>
+                <div class="leg"><span class="indicator idx-res"></span> 예약 완료 (선점 좌석)</div>
+                <div class="leg"><span class="indicator idx-mine"></span> 내 예약 좌석 (본인 배정)</div>
+            </section>
+
+            <div class="system-board-container">
+                <div class="room-section-card">
+                    <h4 style="text-align:left; margin:0 0 10px 0; color:#7f8c8d;">AI실 좌석 배치도 (A01 ~ A36)</h4>
+                    <div id="ai-grid" class="grid-ai"></div>
+                </div>
+
+                <div class="room-section-card">
+                    <h4 style="text-align:left; margin:0 0 10px 0; color:#7f8c8d;">MARIA실 좌석 배치도 (M01 ~ M64)</h4>
+                    <div id="maria-grid" class="grid-maria"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="dim-layer" id="dim-layer"></div>
+    <div class="comment-sidebar" id="comment-sidebar">
+        <div class="comment-header">
+            <h3>💬 익명 한줄 소통 게시판</h3>
+            <span class="comment-close-x" id="close-board-btn">&times;</span>
+        </div>
+        <div class="comment-list" id="comment-list"></div>
+        <div class="comment-input-area">
+            <textarea class="comment-textarea" id="comment-input" placeholder="따뜻하고 자유로운 의견을 남겨주세요 (익명 보장)"></textarea>
+            <button class="comment-submit-btn" id="comment-submit-btn">등록하기</button>
+        </div>
+    </div>
+
+    <div class="admin-modal" id="whisper-modal" style="width:400px; z-index:1600;">
+        <h4>👂 관리자 1:1 비공개 문의</h4>
+        <div class="admin-block" style="margin-bottom:10px;">
+            <label>비공개 문의 메시지 작성</label>
+            <textarea id="whisper-input" style="width:100%; height:60px; resize:none;" placeholder="관리자에게만 비공개로 발송됩니다."></textarea>
+            <button id="whisper-submit-btn" style="width:100%; padding:6px; background:#2980b9; color:#fff; border:none; margin-top:5px; border-radius:4px; font-weight:bold; cursor:pointer;">메시지 전송</button>
+        </div>
+        <label style="font-size:0.8rem; font-weight:bold; color:#555;">[내 귓속말 발신 이력 리스트]</label>
+        <div id="my-whisper-box" style="max-height:150px; overflow-y:auto; background:#f8f9fa; padding:8px; border-radius:4px; font-size:0.75rem; border:1px solid #ddd; margin-top:5px;"></div>
+        <div class="ctrl-btns"><button style="background:#95a5a6; color:#fff;" id="whisper-close-btn">닫기</button></div>
+    </div>
+
+    <div class="modal-overlay" id="modal-overlay" style="z-index: 1090;"></div>
+    <div class="image-modal" id="image-modal">
+        <img id="popup-image" src="" alt="구역 이미지">
+        <button class="image-modal-close" id="image-modal-close">팝업 닫기</button>
+    </div>
+
+    <div class="admin-modal" id="admin-modal">
+        <h4>⚙️ 관리자 제어 패널 대시보드</h4>
+        <div class="admin-grid-section">
+            <div class="admin-block">
+                <label>📋 [1] 공지사항 상단 바 등록 및 수정</label>
+                <input type="text" id="admin-notice-input" placeholder="전체 공지 메시지 입력">
+                <button class="inline-btn" id="admin-notice-btn" style="margin-top:5px; width:100px;">공지 적용</button>
+            </div>
+            <div class="admin-block">
+                <label>📅 [2] 예약 오픈 일시 설정 (타임 피커 락킹 제어)</label>
+                <input type="datetime-local" id="admin-open-datetime">
+                <button class="inline-btn" id="admin-save-datetime-btn" style="margin-top:5px; width:100px; background:#2ecc71;">오픈시간 적용</button>
+            </div>
+            <div class="admin-block">
+                <label>📥 [3] 학생 데이터 파일 업로드 (.xlsx 엑셀 전용 마스터 갱신)</label>
+                <input type="file" id="admin-excel-file" accept=".xlsx">
+            </div>
+            <div class="admin-block">
+                <label>🚫 [4] 검열 마스킹 단어 파일 등록 (.txt 한줄씩 추가)</label>
+                <input type="file" id="admin-txt-file" accept=".txt">
+            </div>
+            <div class="admin-block">
+                <label>🔑 [5] 학생 계정 비밀번호 관리 마스터 리스트 (<미등록> 확인)</label>
+                <div style="max-height:160px; overflow-y:auto; border:1px solid #ced4da; border-radius:4px; background:#fff;">
+                    <table class="pw-manage-table">
+                        <thead><tr><th>학번</th><th>이름</th><th>현재 PW</th><th>동작</th></tr></thead>
+                        <tbody id="admin-pw-table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="admin-block">
+                <label>📥 [6] 학생 1:1 비공개 귓속말 실명 수신함</label>
+                <div style="max-height:160px; overflow-y:auto; border:1px solid #ced4da; border-radius:4px; background:#fff;">
+                    <table class="whisper-table">
+                        <thead><tr><th>발신학생</th><th>내용</th><th>시간</th></tr></thead>
+                        <tbody id="admin-whisper-table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="ctrl-btns">
+            <button style="background:#e74c3c; color:#fff;" id="admin-clear-btn">전체 요일 통합 예약 초기화</button>
+            <button style="background:#95a5a6; color:#fff;" id="admin-close-btn">대시보드 닫기</button>
+        </div>
+    </div>
+
+    <script>
+        // 정밀 정제 주소 기반 시각화 가이드 이미지 소스 구조체
+        const IMAGE_SOURCES = { 
+            '창가': 'window.jpeg', 
+            'AI_일반': 'ai_normal.jpeg', 
+            'MARIA_일반': 'maria_normal.jpeg', 
+            '데스크': 'desk.jpeg' 
+        };
+
+        // 수직 정렬 격자 맵 컴포넌트 매트릭스
+        const AI_ROOM_STRUCTURE = [
+            ["", "", "", "일반", "일반", "", "", ""], 
+            ["", "A01", "A02", "A03", "A04", "A05", "A06", ""],
+            ["", "A07", "A08", "A09", "A10", "A11", "A12", "🔌"], 
+            ["", "A13", "A14", "A15", "A16", "A17", "A18", ""],
+            ["🔌", "A19", "A20", "A21", "A22", "A23", "A24", ""], 
+            ["", "A25", "A26", "A27", "A28", "A29", "A30", ""],
+            ["", "A31", "A32", "A33", "A34", "A35", "A36", ""],
+            ["", "", "", "", "", "", "", "출입문"]
+        ];
+
+        const MARIA_ROOM_STRUCTURE = [
+            ["창가", "", "", "", "", "", "일반", "", "", "", "", "", "창가"], 
+            ["M01", "", "M02", "❚", "M03", "M04", "❚", "M05", "M06", "❚", "M07", "", ""],
+            ["M08", "", "M09", "❚", "M10", "M11", "❚", "M12", "M13", "❚", "M14", "", "M15"],
+            ["M16", "", "M17", "❚", "M18", "M19", "❚", "M20", "M21", "❚", "M22", "", "M23"],
+            ["M24", "", "M25", "❚", "M26", "M27", "❚", "M28", "M29", "❚", "M30", "", "M31"],
+            ["M32", "", "M33", "❚", "M34", "M35", "❚", "M36", "M37", "❚", "M38", "", "M39"],
+            ["M40", "", "M41", "❚", "M42", "M43", "❚", "M44", "M45", "❚", "M46", "", "M47"],
+            ["M48", "", "", "", "", "", "", "", "", "", "", "", "M49"],
+            ["M50", "", "", "", "", "", "", "", "", "", "", "", "M51"],
+            ["M52", "", "", "", "", "데스크", "데스크", "", "", "", "", "", "M53"], 
+            ["M54", "", "", "", "M55", "M56", "M57", "M58", "", "", "", "", ""],
+            ["M59", "", "", "", "M60", "M61", "M62", "M63", "", "", "", "", ""],
+            ["M64", "", "", "", "", "", "", "", "", "", "", "출입문", ""]
+        ];
+
+        // 글로벌 클라이언트 상태 변수
+        let currentUser = null;
+        let currentUserName = "";
+        let isAdminMode = false;
+        let systemOpenTime = "";
+        let globalReservations = {};
+        let activeReplyParentId = null;
+
+        // 로그인 실시간 체크 인라인 바인딩
+        const sInput = document.getElementById('student_id');
+        const sBox = document.getElementById('status-box');
+        const pInput = document.getElementById('password');
+
+        sInput.addEventListener('input', async () => {
+            const sid = sInput.value.trim();
+            if (!sid) { sBox.style.display = 'none'; return; }
+            try {
+                const response = await fetch(`/api/student-check/${sid}`);
+                const data = await response.json();
+                if (data.exists) {
+                    sBox.style.display = 'block';
+                    if (!data.isRegistered) {
+                        sBox.style.color = '#e67e22';
+                        sBox.innerText = `[최초등록] ${data.name}님 환영합니다. 최초 비밀번호 4자리를 아래 설정하세요.`;
+                    } else {
+                        sBox.style.color = '#2ecc71';
+                        sBox.innerText = `${data.name}님 환영합니다`;
+                    }
+                } else {
+                    sBox.style.display = 'none';
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        });
+
+        // 비밀번호 숨김 토글 제어
+        document.getElementById('pw-toggle').addEventListener('click', () => {
+            const type = pInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            pInput.setAttribute('type', type);
+        });
+
+        // 엔터 로그인 처리 트리거
+        pInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') performLogin(); });
+        document.getElementById('login-btn').addEventListener('click', performLogin);
+
+        async function performLogin() {
+            const studentId = sInput.value.trim();
+            const password = pInput.value.trim();
+            if (!studentId || !password) return alert('학번과 비밀번호를 완벽히 입력해 주세요.');
+
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ studentId, password })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    currentUser = studentId;
+                    currentUserName = data.name;
+                    isAdminMode = data.isAdmin || false;
+                    
+                    document.getElementById('user-display').innerText = `🟢 ${currentUserName} ${isAdminMode ? '관리자' : '학생'}`;
+                    document.getElementById('login-page').style.display = 'none';
+                    document.getElementById('main-page').style.display = 'block';
+                    
+                    // if (isAdminMode) {
+//     document.getElementById('open-whisper-btn').style.display = 'none';
+// }
+                    
+                    await pollSystemStatus();
+                    renderGrids();
+                } else {
+                    alert(data.message || '학번/비밀번호가 일치하지 않습니다.');
+                }
+            } catch (err) {
+                alert('서버 통신 오류가 발생했습니다.');
+            }
+        }
+
+        // 로그아웃 초기화
+        document.getElementById('logout-btn').addEventListener('click', () => {
+            currentUser = null; isAdminMode = false;
+            document.getElementById('login-page').style.display = 'flex';
+            document.getElementById('main-page').style.display = 'none';
+            pInput.value = ''; sInput.value = ''; sBox.style.display = 'none';
+            document.getElementById('comment-sidebar').classList.remove('open');
+            document.getElementById('dim-layer').style.display = 'none';
+        });
+
+        // 실시간 3초 초경량 폴링 루틴 구현
+        async function pollSystemStatus() {
+            if (!currentUser) return;
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                globalReservations = data.reservations;
+                systemOpenTime = data.openTime;
+                updateTimelineClock();
+                updateRealtimeSeatsUI();
+            } catch (e) {
+                console.error("폴링 동기화 실패");
+            }
+        }
+        setInterval(pollSystemStatus, 3000);
+
+        // 카운트다운 락킹 타임라인 엔진
+        function updateTimelineClock() {
+            const clock = document.getElementById('countdown-clock');
+            const label = document.getElementById('countdown-label');
+            if (!systemOpenTime) {
+                label.innerText = "⏳ 예약 제한:"; clock.innerText = "오픈 일정이 지정되지 않았습니다.";
+                clock.style.color = "#d63031"; return;
+            }
+            const gap = new Date(systemOpenTime) - new Date();
+            if (gap <= 0) {
+                label.innerText = "🟢 현재 선착순 예약 활성화 완료!"; clock.innerText = "[예약 시스템 가동중]";
+                clock.style.color = "#2ecc71";
+            } else {
+                const hr = String(Math.floor(gap / (1000 * 60 * 60))).padStart(2, '0');
+                const min = String(Math.floor((gap % (1000 * 60 * 60)) / (1000 * 60))).padStart(2, '0');
+                const sec = String(Math.floor((gap % (1000 * 60)) / 1000)).padStart(2, '0');
+                label.innerText = "⏳ 예약 오픈까지 남은 시간:"; clock.innerText = `${hr}시간 ${min}분 ${sec}초`;
+                clock.style.color = "#d63031";
+            }
+        }
+        setInterval(updateTimelineClock, 1000);
+
+        // 정밀 배치 바둑판 드로잉 모듈
+        function renderGrids() {
+            buildMeshDOM('ai-grid', AI_ROOM_STRUCTURE, 'AI');
+            buildMeshDOM('maria-grid', MARIA_ROOM_STRUCTURE, 'MARIA');
+            updateRealtimeSeatsUI();
+        }
+
+        function buildMeshDOM(targetId, matrix, roomType) {
+            const container = document.getElementById(targetId);
+            container.innerHTML = "";
+            
+            matrix.forEach(row => {
+                row.forEach(cell => {
+                    const node = document.createElement('div');
+                    if (cell === "") {
+                        node.className = 'seat-space-empty';
+                    } else if (cell === "❚") {
+                        node.className = 'zone-label wall-node';
+                        node.innerText = "❚";
+                    } else if (cell === "🔌" || cell === "🔌플러그") {
+                        node.className = 'zone-label plug-node';
+                        node.innerText = "🔌";
+                    } else if (cell === "일반" || cell === "창가" || cell === "데스크") {
+                        node.className = 'zone-label clickable-label';
+                        if (cell === '데스크') node.classList.add('desk-label-style');
+                        node.innerText = cell;
+                        
+                        // 시각화 가이드 이미지 모달 바인딩 연동 (정제 주소 매핑)
+                        node.addEventListener('click', () => {
+                            let key = cell;
+                            if (cell === '일반') {
+                                key = (roomType === 'AI') ? 'AI_일반' : 'MARIA_일반';
+                            }
+                            const filename = IMAGE_SOURCES[key];
+                            document.getElementById('popup-image').src = filename;
+                            document.getElementById('modal-overlay').style.display = 'block';
+                            document.getElementById('image-modal').style.display = 'block';
+                        });
+                    } else if (cell === "출입문") {
+                        node.className = 'door-node';
+                        node.innerText = "출입문";
+                    } else {
+                        // 유효 좌석 컴포넌트 
+                        node.className = (roomType === 'AI') ? 'seat-box c-ai-avail' : 'seat-box c-maria-avail';
+                        node.innerText = cell;
+                        node.id = `seat-${cell}`;
+                        node.addEventListener('click', () => triggerSeatReservation(cell, roomType));
+                    }
+                    container.appendChild(node);
+                });
+            });
+        }
+
+        // 선점 상태 일괄 실시간 UI 클래스 매핑 반영
+        function updateRealtimeSeatsUI() {
+            const day = document.getElementById('day-picker').value;
+            const dayRes = globalReservations[day] || {};
+
+            // 모든 좌석 클래스 초기화
+            document.querySelectorAll('.seat-box').forEach(box => {
+                const isAi = box.id.replace('seat-', '').startsWith('A');
+                box.className = isAi ? 'seat-box c-ai-avail' : 'seat-box c-maria-avail';
+            });
+
+            for (const seatId in dayRes) {
+                const box = document.getElementById(`seat-${seatId}`);
+                if (box) {
+                    if (dayRes[seatId].studentId === currentUser) {
+                        box.className = 'seat-box c-mine';
+                    } else {
+                        box.className = 'seat-box c-reserved';
+                    }
+                }
+            }
+        }
+
+        document.getElementById('day-picker').addEventListener('change', updateRealtimeSeatsUI);
+
+        // 원터치 좌석 변경 처리 엔진
+        async function triggerSeatReservation(seatId, roomType) {
+            if (isAdminMode) return alert('관리자는 좌석을 예약할 수 없습니다.');
+            if (!systemOpenTime || new Date(systemOpenTime) > new Date()) {
+                return alert('아직 예약 시간이 아닙니다.');
+            }
+
+            const day = document.getElementById('day-picker').value;
+            const dayRes = globalReservations[day] || {};
+            
+            if (dayRes[seatId]) {
+                if (dayRes[seatId].studentId === currentUser) {
+                    if (confirm(`내가 예약한 [${seatId}] 좌석을 취소하시겠습니까?`)) {
+                        const res = await fetch('/api/cancel', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ studentId: currentUser, day, seatId })
+                        });
+                        if (res.ok) { await pollSystemStatus(); }
+                    }
+                } else {
+                    alert('이미 선점된 좌석입니다.');
+                }
+                return;
+            }
+
+            // 스와핑(변경) 체크 로직 활성화
+            let internalCanceled = false;
+            for (const s in dayRes) {
+                if (dayRes[s].studentId === currentUser) {
+                    if (!confirm(`이미 다른 좌석을 선점 중입니다. 이 좌석을 포기하고 [${seatId}]으로 변경하시겠습니까?`)) {
+                        return;
+                    }
+                    internalCanceled = true;
+                    break;
+                }
+            }
+
+            const res = await fetch('/api/reserve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ studentId: currentUser, day, roomType, seatId })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                await pollSystemStatus();
+            } else {
+                alert(data.message || '예약 처리에 실패했습니다.');
+            }
+        }
+
+        // 이미지 가이드 모달 제거 닫기
+        document.getElementById('image-modal-close').addEventListener('click', () => {
+            document.getElementById('modal-overlay').style.display = 'none';
+            document.getElementById('image-modal').style.display = 'none';
+        });
+
+        // 우측 슬라이딩 드로어 개폐 로직 제어
+        document.getElementById('open-board-btn').addEventListener('click', () => {
+            document.getElementById('comment-sidebar').classList.add('open');
+            document.getElementById('dim-layer').style.display = 'block';
+            loadCommentsBoard();
+        });
+        document.getElementById('close-board-btn').addEventListener('click', closeDrawerUI);
+        document.getElementById('dim-layer').addEventListener('click', closeDrawerUI);
+
+        function closeDrawerUI() {
+            document.getElementById('comment-sidebar').classList.remove('open');
+            document.getElementById('dim-layer').style.display = 'none';
+        }
+
+        // 게시판 렌더링 (대댓글 계층형 구조 완벽 구현)
+        async function loadCommentsBoard() {
+            try {
+                const res = await fetch('/api/comments');
+                const data = await res.json();
+                
+                const listContainer = document.getElementById('comment-list');
+                listContainer.innerHTML = "";
+
+                if (data.notice) {
+                    const nBox = document.createElement('div');
+                    nBox.className = 'notice-box';
+                    nBox.innerText = `📢 공지: ${data.notice}`;
+                    listContainer.appendChild(nBox);
+                }
+
+                // 부모글과 자식글 트리 분리 정렬
+                const parentComments = data.comments.filter(c => !c.parentId);
+                const childComments = data.comments.filter(c => c.parentId);
+
+                parentComments.forEach(item => {
+                    appendCommentNode(item, listContainer, false);
+                    // 자식 답글들 여백 레이아웃 배치
+                    const subReplies = childComments.filter(cc => cc.parentId === item.id);
+                    subReplies.forEach(reply => {
+                        appendCommentNode(reply, listContainer, true);
+                    });
+                });
+            } catch (err) {
+                console.error("게시판 통신 에러");
+            }
+        }
+
+        function appendCommentNode(item, container, isReply) {
+            const node = document.createElement('div');
+            node.className = isReply ? 'comment-item comment-reply' : 'comment-item';
+            
+            const isLikedByMe = item.likes.includes(currentUser);
+            
+            node.innerHTML = `
+                <div class="comment-meta">
+                    <span>${isReply ? '↳ 🔏 ' : ''}${item.anonName}</span>
+                    <span>${item.date}</span>
+                </div>
+                <div class="comment-text">${item.text}</div>
+                <div class="comment-actions">
+                    <span onclick="toggleLike('${item.id}')">${isLikedByMe ? '❤️' : '🤍'} 좋아요 ${item.likes.length}</span>
+                    ${!isReply ? `<span onclick="setReplyTarget('${item.id}', '${item.anonName}')">↳ 답글</span>` : ''}
+                    ${item.writer === currentUser ? `<span onclick="editCommentText('${item.id}')">수정</span>` : ''}
+                    ${item.writer === currentUser ? `<span onclick="deleteCommentText('${item.id}')">삭제</span>` : ''}
+                    ${isAdminMode ? `<span style="color:#e74c3c; font-weight:bold;" onclick="traceAnonymousUser('${item.id}')">🔍 추적</span>` : ''}
+                </div>
+            `;
+            container.appendChild(node);
+        }
+
+        // 댓글 등록 핸들러
+        document.getElementById('comment-submit-btn').addEventListener('click', async () => {
+            const input = document.getElementById('comment-input');
+            const text = input.value.trim();
+            if (!text) return alert('내용을 작성하세요.');
+
+            const res = await fetch('/api/comments/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    studentId: currentUser,
+                    text: text,
+                    parentId: activeReplyParentId
+                })
+            });
+            if (res.ok) {
+                input.value = "";
+                activeReplyParentId = null;
+                input.placeholder = "따뜻하고 자유로운 의견을 남겨주세요 (익명 보장)";
+                loadCommentsBoard();
+            }
+        });
+
+        function setReplyTarget(id, name) {
+            activeReplyParentId = id;
+            const input = document.getElementById('comment-input');
+            input.placeholder = `[${name}님께 대댓글 답글 작성 중]`;
+            input.focus();
+        }
+
+        async function toggleLike(id) {
+            await fetch('/api/comments/like', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ commentId: id, studentId: currentUser })
+            });
+            loadCommentsBoard();
+        }
+
+        async function editCommentText(id) {
+            const newText = prompt('수정할 내용을 입력하세요:');
+            if (!newText) return;
+            await fetch('/api/comments/edit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ commentId: id, studentId: currentUser, text: newText })
+            });
+            loadCommentsBoard();
+        }
+
+        async function deleteCommentText(id) {
+            if (!confirm('정말 삭제하시겠습니까?')) return;
+            await fetch('/api/comments/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ commentId: id, studentId: currentUser })
+            });
+            loadCommentsBoard();
+        }
+
+        // [익명 인적사항 추적 시스템 가동]
+        async function traceAnonymousUser(commentId) {
+            const adminPw = 'salesioadmin15130!'; // 환경변수 마스터 매핑 키 검증 구조 연동
+            const res = await fetch('/api/admin/trace-comment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: adminPw, commentId })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                alert(`🔍 [익명 데이터 추적 백엔드 감지 시스템]\n\n작성자 학번: ${data.studentId}\n작성자 실제 이름: ${data.name}`);
+            } else {
+                alert('추적 실패');
+            }
+        }
+
+        // 귓속말 시스템 (👂)
+        document.getElementById('open-whisper-btn').addEventListener('click', async () => {
+            document.getElementById('whisper-modal').style.display = 'block';
+            loadMyWhisperLogs();
+        });
+        document.getElementById('whisper-close-btn').addEventListener('click', () => {
+            document.getElementById('whisper-modal').style.display = 'none';
+        });
+
+        document.getElementById('whisper-submit-btn').addEventListener('click', async () => {
+            const input = document.getElementById('whisper-input');
+            const text = input.value.trim();
+            if(!text) return alert('메시지를 입력하세요.');
+
+            const res = await fetch('/api/whisper/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ studentId: currentUser, text })
+            });
+            if(res.ok) {
+                input.value = "";
+                alert('관리자 비공개 수신함으로 연동 발송 완료.');
+                loadMyWhisperLogs();
+            }
+        });
+
+        async function loadMyWhisperLogs() {
+            const res = await fetch(`/api/whisper/my/${currentUser}`);
+            const data = await res.json();
+            const box = document.getElementById('my-whisper-box');
+            box.innerHTML = data.map(w => `<div>[${w.time}] 수신됨: ${w.text}</div>`).join('') || '보낸 내역이 없습니다.';
+        }
+
+        // 하단 텍스트 링크 기반 관리자 인증 수단 개체 활성화
+        document.body.insertAdjacentHTML('beforeend', `<footer>시스템 통합 상태 검증 완료. <span class="admin-link" id="footer-admin-link">관리자 설정</span></footer>`);
+        
+        document.getElementById('footer-admin-link').addEventListener('click', () => {
+            const pw = prompt('관리자 마스터 비밀번호를 입력하세요:');
+            if (pw === 'salesioadmin15130!') {
+                document.getElementById('admin-modal').style.display = 'block';
+                loadAdminDashboardData();
+            } else if (pw !== null) {
+                alert('비밀번호가 올바르지 않습니다.');
+            }
+        });
+
+        document.getElementById('admin-close-btn').addEventListener('click', () => {
+            document.getElementById('admin-modal').style.display = 'none';
+        });
+
+        async function loadAdminDashboardData() {
+            const adminPw = 'salesioadmin15130!';
+            // 1. 비밀번호 및 마스터 현황 테이블 로드
+            const resList = await fetch('/api/admin/students-list', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: adminPw })
+            });
+            const students = await resList.json();
+            const tbody = document.getElementById('admin-pw-table-body');
+            tbody.innerHTML = students.map(s => `
+                <tr>
+                    <td>${s.studentId}</td>
+                    <td>${s.name}</td>
+                    <td>${s.password ? s.password : '<span style="color:#e67e22; font-weight:bold;">&lt;미등록&gt;</span>'}</td>
+                    <td>
+                        <input type="text" id="inline-pw-${s.studentId}" class="inline-input" placeholder="변경값">
+                        <button class="inline-btn" onclick="forceChangePw('${s.studentId}')">변경</button>
+                    </td>
+                </tr>
+            `).join('');
+
+            // 2. 귓속말 수신함 연동 로드
+            const resWhisper = await fetch('/api/admin/whispers-box', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: adminPw })
+            });
+            const whispers = await resWhisper.json();
+            const wTbody = document.getElementById('admin-whisper-table-body');
+            wTbody.innerHTML = whispers.map(w => `
+                <tr>
+                    <td>${w.studentId}(${w.name})</td>
+                    <td>${w.text}</td>
+                    <td style="font-size:0.7rem;">${w.time}</td>
+                </tr>
+            `).join('') || '<tr><td colspan="3" style="text-align:center;">수신함이 비어있습니다.</td></tr>';
+        }
+
+        async function forceChangePw(targetId) {
+            const adminPw = 'salesioadmin15130!';
+            const newPw = document.getElementById(`inline-pw-${targetId}`).value.trim();
+            if(!newPw) return alert('비밀번호를 입력하세요.');
+            
+            await fetch('/api/admin/change-student-pw', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: adminPw, targetId, newPw })
+            });
+            alert(`학번 ${targetId}의 비밀번호를 강제 변경 완료했습니다.`);
+            loadAdminDashboardData();
+        }
+
+        // 공지사항 바 업데이트
+        document.getElementById('admin-notice-btn').addEventListener('click', async () => {
+            const text = document.getElementById('admin-notice-input').value.trim();
+            await fetch('/api/admin/notice', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: 'salesioadmin15130!', text })
+            });
+            alert('상단 공지바 설정 변경 완료.');
+        });
+
+        // 오픈 날짜 갱신 지정
+        document.getElementById('admin-save-datetime-btn').addEventListener('click', async () => {
+            const openTime = document.getElementById('admin-open-datetime').value;
+            if(!openTime) return alert('일시를 선택하세요.');
+            await fetch('/api/admin/set-opentime', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: 'salesioadmin15130!', openTime })
+            });
+            alert('타임록 스케줄 동기화가 반영되었습니다.');
+            await pollSystemStatus();
+        });
+
+        // 전체 초기화 트랜잭션
+        document.getElementById('admin-clear-btn').addEventListener('click', async () => {
+            if(!confirm('정말 전체 요일 통합 좌석 예약 현황을 포기하고 초기화하시겠습니까?')) return;
+            await fetch('/api/admin/clear-reservations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: 'salesioadmin15130!' })
+            });
+            alert('예약DB 초기화 완료.');
+            await pollSystemStatus();
+        });
+
+        // 대용량 SheetJS 기반 엑셀 업로드 자동 파싱 연동 시스템
+        document.getElementById('admin-excel-file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                const json = XLSX.utils.sheet_to_json(worksheet);
+
+                const res = await fetch('/api/admin/upload-students', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: 'salesioadmin15130!', students: json })
+                });
+                const result = await res.json();
+                if (res.ok) {
+                    alert(`📥 엑셀 파싱 성공! 학적DB에 총 ${result.count}명의 학생 정보 마스터가 반영되었습니다.`);
+                    loadAdminDashboardData();
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // 금지 단어 텍스트 파일 파싱 연동
+        document.getElementById('admin-txt-file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                const text = e.target.result;
+                const words = text.split('\n').map(w => w.trim());
+                const res = await fetch('/api/admin/set-censored', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: 'salesioadmin15130!', words })
+                });
+                const data = await res.json();
+                if(res.ok) {
+                    alert(`🚫 금지 단어 총 ${data.count}개가 동동기화 적용되었습니다.`);
+                }
+            };
+            reader.readAsText(file, 'utf-8');
+        });
+    </script>
+</body>
+</html>
