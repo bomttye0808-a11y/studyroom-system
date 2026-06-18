@@ -692,14 +692,14 @@
             const isLikedByMe = item.likes.includes(currentUser);
             
             node.innerHTML = `
-                `<div class="comment-actions">
+                <div class="comment-actions">
     <span onclick="setReplyTarget('${c.id}', '${c.anonName}')">답글</span>
     ${c.writer === currentUser ? `<span onclick="editCommentText('${c.id}')">수정</span>` : ''}
     ${c.writer === currentUser ? `<span onclick="deleteCommentText('${c.id}')">삭제</span>` : ''}
     <span onclick="toggleLike('${c.id}')">❤️ ${c.likes || 0}</span>
     <span style="color:#e67e22;" onclick="reportCommentItem('${c.id}')">🚨 신고</span>
     ${isAdminMode ? `<span style="color:#e74c3c;" onclick="traceAnonymousUser('${c.id}')">추적</span>` : ''}
-</div>`
+</div>
             `;
             container.appendChild(node);
         }
@@ -964,41 +964,40 @@
                     alert(`🚫 금지 단어 총 ${data.count}개가 동동기화 적용되었습니다.`);
                 }
             };
-            reader.readAsText(file, 'utf-8');
-        });
-        // 좌석표 바둑판 형태의 엑셀(XLSX) 내보내기 기능 추가
+            reader.readAsText(file, 'EUC-KR');
+        }); // <-- 금지 단어 이벤트 리스너가 안전하게 닫히는 지점
+
+        // =========================================================
+        // 요구사항 추가 스크립트 영역 (괄호 뒤틀림 완전 교정 버전)
+        // =========================================================
+
+        // [추가] 좌석표 바둑판 형태의 엑셀(XLSX) 내보내기 기능
         document.getElementById('excel-board-download-btn').addEventListener('click', () => {
             const day = document.getElementById('day-picker').value;
             const dayRes = globalReservations[day] || {};
             
-            // 엑셀 최종 시트 데이터 배열 초기화
             let sheetData = [];
-            
-            // 최상단 행 큰 요일명 표기용 (A1 셀 위치 지정)
             sheetData.push([`📅 ${day} 현재 예약 현황 좌석 배치도`]);
-            sheetData.push([]); // 한 줄 띄움
+            sheetData.push([]); 
 
-            // AI실 섹션 파싱 매핑
             sheetData.push(["[ AI실 좌석 배치도 ]"]);
             AI_ROOM_STRUCTURE.forEach(row => {
                 let rowCells = row.map(cell => {
                     if (!cell) return "";
                     if (cell.startsWith("A") && !isNaN(cell.substring(1))) {
-                        // 유효 좌석 확인 시 예약 매치 프로세스 연동
                         if (dayRes[cell]) {
                             return `${cell} / ${dayRes[cell].studentId} / ${dayRes[cell].name}`;
                         }
-                        return cell; // 예약 없을 시 좌석번호만 표시
+                        return cell;
                     }
-                    return cell; // 가이드 텍스트 및 벽기호 등
+                    return cell;
                 });
                 sheetData.push(rowCells);
             });
 
-            sheetData.push([]); // 공간 분리 빈 행
+            sheetData.push([]); 
             sheetData.push([]);
 
-            // MARIA실 섹션 파싱 매핑
             sheetData.push(["[ MARIA실 좌석 배치도 ]"]);
             MARIA_ROOM_STRUCTURE.forEach(row => {
                 let rowCells = row.map(cell => {
@@ -1014,17 +1013,15 @@
                 sheetData.push(rowCells);
             });
 
-            // SheetJS 라이브러리 연동 가동 및 통합 엑셀 다운로드 파일 빌드
             const wb = XLSX.utils.book_new();
             const ws = XLSX.utils.aoa_to_sheet(sheetData);
-
-            // 상단 요일 타이틀 행 셀 병합(Merge) 스타일 설정 적용
             ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
 
             XLSX.utils.book_append_sheet(wb, ws, "좌석배치도_현황");
             XLSX.writeFile(wb, `자습실_예약현황_바둑판_${day}.xlsx`);
         });
-        // 댓글 신고 비동기 처리 함수 신설
+
+        // [추가] 댓글 신고 비동기 처리 함수 신설
         async function reportCommentItem(commentId) {
             if(!confirm('이 게시글/댓글을 정말 신고하시겠습니까? (누적 3회 시 작성자 영구 자동 차단)')) return;
             const res = await fetch('/api/comments/report', {
@@ -1039,6 +1036,7 @@
                 alert('신고 처리에 실패했습니다.');
             }
         }
+        
     </script>
 </body>
 </html>
