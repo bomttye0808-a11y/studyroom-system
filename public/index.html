@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>학교 자습실 통합 좌석 예약 시스템</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
         body { font-family: 'Malgun Gothic', sans-serif; margin: 0; padding: 0; background-color: #f1f3f6; color: #333; }
@@ -138,6 +139,37 @@
         .ctrl-btns button { flex: 1; padding: 10px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
         
         .logout-btn { color: #ff7675; cursor: pointer; margin-left: 15px; font-weight: bold; }
+
+        /* 모바일 기기 대응 반응형 폭 축소 (배치도 정밀 유지) */
+        @media (max-width: 768px) {
+            .room-section-card {
+                padding: 10px;
+                width: 100%;
+            }
+            .grid-ai {
+                grid-template-columns: repeat(8, minmax(30px, 1fr));
+                gap: 4px;
+            }
+            .grid-maria {
+                grid-template-columns: repeat(13, minmax(20px, 1fr));
+                gap: 3px;
+            }
+            .seat-box {
+                height: 30px;
+                font-size: 0.65rem;
+                padding: 2px;
+            }
+            .seat-space-empty, .zone-label, .desk-label-style, .door-node {
+                height: 30px;
+                font-size: 0.65rem;
+            }
+            .wall-node {
+                font-size: 0.8rem;
+            }
+            .plug-node {
+                font-size: 0.8rem;
+            }
+        }
     </style>
 </head>
 <body>
@@ -149,7 +181,7 @@
             <input type="text" id="student_id" placeholder="학번 입력(예 : 10101)" autocomplete="off">
             <div class="pw-wrapper">
                 <input type="password" id="password" placeholder="비밀번호 (최초 로그인 시 4자리 설정)">
-                <span class="pw-toggle-btn" id="pw-toggle">👁️</span>
+<span class="pw-toggle-btn" id="pw-toggle"><i class="fa-regular fa-eye"></i></span>
             </div>
             <button id="login-btn">접속하기</button>
         </div>
@@ -358,10 +390,16 @@
             }
         });
 
-        // 비밀번호 숨김 토글 제어
-        document.getElementById('pw-toggle').addEventListener('click', () => {
+        // 비밀번호 숨김 토글 제어 (FontAwesome 아이콘 전환 반영)
+        document.getElementById('pw-toggle').addEventListener('click', function() {
             const type = pInput.getAttribute('type') === 'password' ? 'text' : 'password';
             pInput.setAttribute('type', type);
+            const icon = this.querySelector('i');
+            if (type === 'text') {
+                icon.className = 'fa-regular fa-eye-slash';
+            } else {
+                icon.className = 'fa-regular fa-eye';
+            }
         });
 
         // 엔터 로그인 처리 트리거
@@ -387,14 +425,17 @@
                     
                     document.getElementById('user-display').innerText = `🟢 ${currentUserName} ${isAdminMode ? '관리자' : '학생'}`;
                     document.getElementById('login-page').style.display = 'none';
-                    document.getElementById('main-page').style.display = 'block';
-                    
-                    // if (isAdminMode) {
-//     document.getElementById('open-whisper-btn').style.display = 'none';
-// }
-                    
-                    await pollSystemStatus();
-                    renderGrids();
+                document.getElementById('main-page').style.display = 'block';
+                
+                // 오직 studentId가 'salesio' 일 때만 완벽히 하단 관리자 설정 메뉴를 노출함
+                if (studentId === 'salesio') {
+                    document.getElementById('admin-footer-zone').style.display = 'inline-block';
+                } else {
+                    document.getElementById('admin-footer-zone').style.display = 'none';
+                }
+
+                await pollSystemStatus();
+                renderGrids();
                 } else {
                     alert(data.message || '학번/비밀번호가 일치하지 않습니다.');
                 }
@@ -474,22 +515,33 @@
                         node.className = 'zone-label plug-node';
                         node.innerText = "🔌";
                     } else if (cell === "일반" || cell === "창가" || cell === "데스크") {
-                        node.className = 'zone-label clickable-label';
-                        if (cell === '데스크') node.classList.add('desk-label-style');
-                        node.innerText = cell;
-                        
-                        // 시각화 가이드 이미지 모달 바인딩 연동 (정제 주소 매핑)
-                        node.addEventListener('click', () => {
-                            let key = cell;
-                            if (cell === '일반') {
-                                key = (roomType === 'AI') ? 'AI_일반' : 'MARIA_일반';
-                            }
-                            const filename = IMAGE_SOURCES[key];
-                            document.getElementById('popup-image').src = filename;
-                            document.getElementById('modal-overlay').style.display = 'block';
-                            document.getElementById('image-modal').style.display = 'block';
-                        });
-                    } else if (cell === "출입문") {
+                if ((roomType === 'AI' && cell === '일반') || (roomType === 'MARIA' && cell === '데스크')) {
+                    // 사각형 테두리 박스 및 클릭 기능 완전 배제, 순수 텍스트 레이아웃 구조화
+                    node.style.border = 'none';
+                    node.style.background = 'transparent';
+                    node.style.gridColumn = 'span 2'; // 2칸 공간 자연스럽게 확보
+                    node.style.cursor = 'default';
+                    node.style.pointerEvents = 'none';
+                    node.style.fontWeight = 'bold';
+                    node.style.color = (cell === '데스크') ? '#2980b9' : '#2c3e50';
+                    node.innerText = cell;
+                } else {
+                    // 기존의 다른 컴포넌트(창가 등) 구현체 로직 원본 유지 보존
+                    node.className = 'zone-label clickable-label';
+                    if (cell === '데스크') node.classList.add('desk-label-style');
+                    node.innerText = cell;
+                    node.addEventListener('click', () => {
+                        let key = cell;
+                        if (cell === '일반') {
+                            key = (roomType === 'AI') ? 'AI_일반' : 'MARIA_일반';
+                        }
+                        const filename = IMAGE_SOURCES[key];
+                        document.getElementById('popup-image').src = filename;
+                        document.getElementById('modal-overlay').style.display = 'block';
+                        document.getElementById('image-modal').style.display = 'block';
+                    });
+                }
+            } else if (cell === "출입문") {
                         node.className = 'door-node';
                         node.innerText = "출입문";
                     } else {
@@ -640,18 +692,14 @@
             const isLikedByMe = item.likes.includes(currentUser);
             
             node.innerHTML = `
-                <div class="comment-meta">
-                    <span>${isReply ? '↳ 🔏 ' : ''}${item.anonName}</span>
-                    <span>${item.date}</span>
-                </div>
-                <div class="comment-text">${item.text}</div>
-                <div class="comment-actions">
-                    <span onclick="toggleLike('${item.id}')">${isLikedByMe ? '❤️' : '🤍'} 좋아요 ${item.likes.length}</span>
-                    ${!isReply ? `<span onclick="setReplyTarget('${item.id}', '${item.anonName}')">↳ 답글</span>` : ''}
-                    ${item.writer === currentUser ? `<span onclick="editCommentText('${item.id}')">수정</span>` : ''}
-                    ${item.writer === currentUser ? `<span onclick="deleteCommentText('${item.id}')">삭제</span>` : ''}
-                    ${isAdminMode ? `<span style="color:#e74c3c; font-weight:bold;" onclick="traceAnonymousUser('${item.id}')">🔍 추적</span>` : ''}
-                </div>
+                `<div class="comment-actions">
+    <span onclick="setReplyTarget('${c.id}', '${c.anonName}')">답글</span>
+    ${c.writer === currentUser ? `<span onclick="editCommentText('${c.id}')">수정</span>` : ''}
+    ${c.writer === currentUser ? `<span onclick="deleteCommentText('${c.id}')">삭제</span>` : ''}
+    <span onclick="toggleLike('${c.id}')">❤️ ${c.likes || 0}</span>
+    <span style="color:#e67e22;" onclick="reportCommentItem('${c.id}')">🚨 신고</span>
+    ${isAdminMode ? `<span style="color:#e74c3c;" onclick="traceAnonymousUser('${c.id}')">추적</span>` : ''}
+</div>`
             `;
             container.appendChild(node);
         }
@@ -665,17 +713,18 @@
             const res = await fetch('/api/comments/add', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    studentId: currentUser,
-                    text: text,
-                    parentId: activeReplyParentId
-                })
+                body: JSON.stringify({ studentId: currentUser, text: text, parentId: activeReplyParentId })
             });
             if (res.ok) {
                 input.value = "";
                 activeReplyParentId = null;
                 input.placeholder = "따뜻하고 자유로운 의견을 남겨주세요 (익명 보장)";
                 loadCommentsBoard();
+            } else if (res.status === 403) {
+                const errData = await res.json();
+                alert(errData.message || "글쓰기 제한 대상자입니다.");
+            } else {
+                alert("등록에 실패하였습니다.");
             }
         });
 
@@ -766,7 +815,7 @@
         }
 
         // 하단 텍스트 링크 기반 관리자 인증 수단 개체 활성화
-        document.body.insertAdjacentHTML('beforeend', `<footer>시스템 통합 상태 검증 완료. <span class="admin-link" id="footer-admin-link">관리자 설정</span></footer>`);
+        document.body.insertAdjacentHTML('beforeend', `<footer>시스템 통합 상태 검증 완료. <span id="admin-footer-zone" style="display: none;"><span class="admin-link" id="footer-admin-link">관리자 설정</span></span></footer>`);
         
         document.getElementById('footer-admin-link').addEventListener('click', () => {
             const pw = prompt('관리자 마스터 비밀번호를 입력하세요:');
@@ -777,7 +826,7 @@
                 alert('비밀번호가 올바르지 않습니다.');
             }
         });
-
+<button id="excel-board-download-btn" style="background:#27ae60; color:#fff;">📊 좌석표 바둑판 엑셀 다운로드</button>
         document.getElementById('admin-close-btn').addEventListener('click', () => {
             document.getElementById('admin-modal').style.display = 'none';
         });
@@ -917,6 +966,79 @@
             };
             reader.readAsText(file, 'utf-8');
         });
+        // 좌석표 바둑판 형태의 엑셀(XLSX) 내보내기 기능 추가
+        document.getElementById('excel-board-download-btn').addEventListener('click', () => {
+            const day = document.getElementById('day-picker').value;
+            const dayRes = globalReservations[day] || {};
+            
+            // 엑셀 최종 시트 데이터 배열 초기화
+            let sheetData = [];
+            
+            // 최상단 행 큰 요일명 표기용 (A1 셀 위치 지정)
+            sheetData.push([`📅 ${day} 현재 예약 현황 좌석 배치도`]);
+            sheetData.push([]); // 한 줄 띄움
+
+            // AI실 섹션 파싱 매핑
+            sheetData.push(["[ AI실 좌석 배치도 ]"]);
+            AI_ROOM_STRUCTURE.forEach(row => {
+                let rowCells = row.map(cell => {
+                    if (!cell) return "";
+                    if (cell.startsWith("A") && !isNaN(cell.substring(1))) {
+                        // 유효 좌석 확인 시 예약 매치 프로세스 연동
+                        if (dayRes[cell]) {
+                            return `${cell} / ${dayRes[cell].studentId} / ${dayRes[cell].name}`;
+                        }
+                        return cell; // 예약 없을 시 좌석번호만 표시
+                    }
+                    return cell; // 가이드 텍스트 및 벽기호 등
+                });
+                sheetData.push(rowCells);
+            });
+
+            sheetData.push([]); // 공간 분리 빈 행
+            sheetData.push([]);
+
+            // MARIA실 섹션 파싱 매핑
+            sheetData.push(["[ MARIA실 좌석 배치도 ]"]);
+            MARIA_ROOM_STRUCTURE.forEach(row => {
+                let rowCells = row.map(cell => {
+                    if (!cell) return "";
+                    if (cell.startsWith("M") && !isNaN(cell.substring(1))) {
+                        if (dayRes[cell]) {
+                            return `${cell} / ${dayRes[cell].studentId} / ${dayRes[cell].name}`;
+                        }
+                        return cell;
+                    }
+                    return cell;
+                });
+                sheetData.push(rowCells);
+            });
+
+            // SheetJS 라이브러리 연동 가동 및 통합 엑셀 다운로드 파일 빌드
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+            // 상단 요일 타이틀 행 셀 병합(Merge) 스타일 설정 적용
+            ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
+
+            XLSX.utils.book_append_sheet(wb, ws, "좌석배치도_현황");
+            XLSX.writeFile(wb, `자습실_예약현황_바둑판_${day}.xlsx`);
+        });
+        // 댓글 신고 비동기 처리 함수 신설
+        async function reportCommentItem(commentId) {
+            if(!confirm('이 게시글/댓글을 정말 신고하시겠습니까? (누적 3회 시 작성자 영구 자동 차단)')) return;
+            const res = await fetch('/api/comments/report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ commentId })
+            });
+            if(res.ok) {
+                alert('신고가 정상적으로 접수되었습니다.');
+                loadCommentsBoard();
+            } else {
+                alert('신고 처리에 실패했습니다.');
+            }
+        }
     </script>
 </body>
 </html>

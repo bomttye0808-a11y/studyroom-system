@@ -26,7 +26,8 @@ function initDatabase() {
             comments: [],
             openTime: "",
             censoredWords: [],
-            whispers: []
+            whispers: [],
+            blacklist: {} // ◀ 추가
         };
         fs.writeFileSync(DB_PATH, JSON.stringify(initialSchema, null, 4), 'utf8');
     } else {
@@ -41,6 +42,7 @@ function initDatabase() {
             if (!data.openTime) { data.openTime = ""; updated = true; }
             if (!data.censoredWords) { data.censoredWords = []; updated = true; }
             if (!data.whispers) { data.whispers = []; updated = true; }
+            if (!data.blacklist) { data.blacklist = {}; updated = true; }
             if (updated) fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 4), 'utf8');
         } catch (e) {
             console.error("DB 로드 에러, 초기화 진행");
@@ -201,6 +203,53 @@ app.post('/api/admin/notice', (req, res) => {
 app.post('/api/comments/add', (req, res) => {
     const { studentId, text, parentId } = req.body;
     const db = readDB();
+// [API] 익명 게시판 댓글 신고 및 누적 3회 블랙리스트 시스템 추가
+app.post('/api/comments/report', (req, res) => {
+    const { commentId } = req.body;
+    const db = readDB();
+
+    // 재귀적으로 댓글 리스트 내에서 해당 commentId를 탐색하는 함수
+    function findAndReport(list) {
+        for (let c of list) {
+            if (c.id === commentId) {
+                if (!c.reportCount) c.reportCount = 0;
+                c.reportCount += 1;
+                
+                // 누적 3회 이상 신고 시 자동으로 학번 블랙리스트 등록
+                if (c.reportCount >= 3 && c.writer) {
+                    if (!db.blacklist) db.blacklist = {};
+                    db.blacklist[c.writer] = Date.now(); // 현재 시점 타임스탬프 저장
+                }
+                return true;
+            }
+            if (c.replies && c.replies.length > 0) {
+                if (findAndReport(c.replies)) return true;
+            }
+        }
+        return false;
+    }
+
+    const found = findAndReport(db.comments);
+    if (found) {
+        writeDB(db);
+        return res.json({ success: true });
+    }
+    res.status(404).json({ message: '해당 댓글을 찾을 수 없습니다.' });
+});
+    // 블랙리스트 및 7일 만료 자동 해제 검증 로직
+    if (db.blacklist && db.blacklist[studentId]) {
+        const blockedTime = db.blacklist[studentId];
+        const currentTime = Date.now();
+        const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
+        if (currentTime - blockedTime < sevenDaysMs) {
+            return res.status(403).json({ message: '신고 누적으로 글쓰기가 7일간 제한되었습니다.' });
+        } else {
+            // 일주일이 지나면 자동으로 블랙리스트에서 제거
+            delete db.blacklist[studentId];
+            writeDB(db);
+        }
+    }
     if (!db.studentMaster[studentId]) return res.status(403).json({ message: '권한이 없습니다.' });
 
     const filteredText = applyCensorship(text, db.censoredWords);
