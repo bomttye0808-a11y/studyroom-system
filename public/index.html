@@ -498,56 +498,116 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
         function buildMeshDOM(targetId, matrix, roomType) {
     const container = document.getElementById(targetId);
     container.innerHTML = "";
+    // 14. [ADMIN] 일주일 전체 요일 통합 배치도 고도화 다운로드 (단 하나의 파일 내 멀티 시트 생성)
     document.getElementById('admin-excel-download-btn').addEventListener('click', function() {
-            const currentDay = document.getElementById('day-picker').value;
+        const days = ['월', '화', '수', '목', '금'];
+        const wb = XLSX.utils.book_new();
+
+        days.forEach(day => {
+            let ws_data = [];
+            let merges = [];
+
+            // 1. 최상단 요일 타이틀 추가
+            ws_data.push([`📅 ${day}요일 자습실 실시간 좌석 예약 배치도 현황`]);
+            ws_data.push([]); // 여백 행
+            merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: 15 } }); // 타이틀 셀 병합
+
+            // 2. AI실 구조 배치 시작
+            ws_data.push(["[ AI실 좌석 배치 현황 (가로 3칸 x 세로 2칸 병합 레이아웃) ]"]);
+            ws_data.push([]);
             
-            // 2차원 빈 배열 배열 선언 (최대 마리아실 13열 커버 및 타이틀/여백 고려)
-            let matrix = [];
-            
-            // 최상단 요일 이름 크게 병합 표시용 첫줄 할당
-            matrix.push([`📅 ${currentDay} 자습실 실시간 좌석 예약 배치도 현황`]);
-            matrix.push([]); // 여백 행
-            
-            matrix.push(["[ AI실 좌석 배치 현황 (8열 격자) ]"]);
-            // AI실 구조 행렬 매핑 (AI_ROOM_STRUCTURE 구조 반영 파싱 루프)
-            AI_ROOM_STRUCTURE.forEach(row => {
-                let rowData = [];
-                row.forEach(cell => {
-                    if(!cell || cell === "일반" || cell === "데스크" || cell === "창가" || cell === "통로") {
-                        rowData.push(cell || "");
+            let currentExcelRow = ws_data.length;
+
+            AI_ROOM_STRUCTURE.forEach((row, rowIndex) => {
+                // 한 행당 세로 2칸 공간 확보를 위한 행 배열 생성
+                let firstRowData = [];
+                let secondRowData = [];
+
+                row.forEach((cell, colIndex) => {
+                    const startCol = colIndex * 3; // 가로 3칸 간격 격자 계산
+
+                    if (!cell || cell === "일반" || cell === "데스크" || cell === "창가" || cell === "통로") {
+                        firstRowData[startCol] = cell || "";
+                        // 일반 텍스트 구역도 동일한 크기로 병합 처리하여 구조 깨짐 방지
+                        merges.push({
+                            s: { r: currentExcelRow, c: startCol },
+                            e: { r: currentExcelRow + 1, c: startCol + 2 }
+                        });
                     } else {
-                        // 실제 좌석 번호일 경우 글로벌 예약 캐시와 매칭 확인
-                        // (전역에서 가져오는 실시간 예약 데이터 구조인 globalReservations[currentDay][cell] 기준 대응)
-                        const resInfo = globalReservations && globalReservations[currentDay] ? globalReservations[currentDay][cell] : null;
-                        if(resInfo) {
-                            rowData.push(`${cell}\n(${resInfo.studentId} ${resInfo.name})`);
+                        // 실시간 예약 캐시 데이터(globalReservations) 매핑 매커니즘 연동
+                        const resInfo = globalReservations && globalReservations[day] ? globalReservations[day][cell] : null;
+                        if (resInfo) {
+                            // 좌측 상단 [좌석번호], 바로 아래에 학번 이름 배치 구조 구현
+                            firstRowData[startCol] = `[${cell}번]`;
+                            secondRowData[startCol] = `${resInfo.grade}${resInfo.class}${String(resInfo.number).padStart(2, '0')} ${resInfo.name}`;
                         } else {
-                            rowData.push(cell);
+                            firstRowData[startCol] = `[${cell}번]`;
+                            secondRowData[startCol] = "공석";
                         }
+
+                        // 가로 3칸 x 세로 2칸(s:시작행/열, e:종료행/열) 명확한 병합 마킹 정의
+                        merges.push({
+                            s: { r: currentExcelRow, c: startCol },
+                            e: { r: currentExcelRow + 1, c: startCol + 2 }
+                        });
                     }
                 });
-                matrix.push(rowData);
+
+                ws_data.push(firstRowData, secondRowData);
+                currentExcelRow += 2; // 다음 구조 배치를 위해 가상 엑셀 포인터 2줄 증가
             });
-            
-            matrix.push([]); matrix.push([]); // 구분 공백 행
-            matrix.push(["[ MARIA실 좌석 배치 현황 (13열 격자) ]"]);
-            
-            MARIA_ROOM_STRUCTURE.forEach(row => {
-                let rowData = [];
-                row.forEach(cell => {
-                    if(!cell || cell === "일반" || cell === "데스크" || cell === "창가" || cell === "통로") {
-                        rowData.push(cell || "");
+
+            ws_data.push([]); ws_data.push([]); // 룸 구분 공백 행 생성
+            currentExcelRow += 2;
+
+            // 3. MARIA실 구조 배치 시작
+            ws_data.push(["[ MARIA실 좌석 배치 현황 (가로 3칸 x 세로 2칸 병합 레이아웃) ]"]);
+            ws_data.push([]);
+            currentExcelRow += 2;
+
+            MARIA_ROOM_STRUCTURE.forEach((row, rowIndex) => {
+                let firstRowData = [];
+                let secondRowData = [];
+
+                row.forEach((cell, colIndex) => {
+                    const startCol = colIndex * 3;
+
+                    if (!cell || cell === "일반" || cell === "데스크" || cell === "창가" || cell === "통로") {
+                        firstRowData[startCol] = cell || "";
+                        merges.push({
+                            s: { r: currentExcelRow, c: startCol },
+                            e: { r: currentExcelRow + 1, c: startCol + 2 }
+                        });
                     } else {
-                        const resInfo = globalReservations && globalReservations[currentDay] ? globalReservations[currentDay][cell] : null;
-                        if(resInfo) {
-                            rowData.push(`${cell}\n(${resInfo.studentId} ${resInfo.name})`);
+                        const resInfo = globalReservations && globalReservations[day] ? globalReservations[day][cell] : null;
+                        if (resInfo) {
+                            firstRowData[startCol] = `[${cell}번]`;
+                            secondRowData[startCol] = `${resInfo.grade}${resInfo.class}${String(resInfo.number).padStart(2, '0')} ${resInfo.name}`;
                         } else {
-                            rowData.push(cell);
+                            firstRowData[startCol] = `[${cell}번]`;
+                            secondRowData[startCol] = "공석";
                         }
+
+                        merges.push({
+                            s: { r: currentExcelRow, c: startCol },
+                            e: { r: currentExcelRow + 1, c: startCol + 2 }
+                        });
                     }
                 });
-                matrix.push(rowData);
+
+                ws_data.push(firstRowData, secondRowData);
+                currentExcelRow += 2;
             });
+
+            // 2차원 원시 데이터 배열(AOA) 기반 시트 인스턴스 생성 및 병합 등록
+            const ws = XLSX.utils.aoa_to_sheet(ws_data);
+            ws['!merges'] = merges;
+            XLSX.utils.book_append_sheet(wb, ws, `${day}요일`);
+        });
+
+        // 단 '하나'의 통합 문서 객체로 로컬 다운로드 발동 시키기
+        XLSX.writeFile(wb, `주간_자습실_통합_좌석배치도.xlsx`);
+    });
             
             // SheetJS 통합 가공 및 다운로드 워크북 빌드
             const wb = XLSX.utils.book_new();
@@ -570,7 +630,8 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
             
             XLSX.utils.book_append_sheet(wb, ws, "좌석배치도현황");
             XLSX.writeFile(wb, `자습실_좌석배치도_${currentDay}.xlsx`);
-        });
+        };
+
     // 행 인덱스(r)를 함께 추적하기 위해 forEach에 인덱스 매개변수 r 추가
     matrix.forEach((row, r) => {
         // 안쪽 루프를 인덱스 조작(c++)이 가능한 일반 for문으로 변경합니다.
@@ -663,7 +724,7 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
             container.appendChild(node);
         }
     });
-}
+
 
         // 선점 상태 일괄 실시간 UI 클래스 매핑 반영
         function updateRealtimeSeatsUI() {
@@ -969,6 +1030,10 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
             document.getElementById('admin-modal').style.display = 'none';
         });
 
+        // 중복 생성으로 인한 캔버스 에러를 방지하기 위해 차트 인스턴스 저장 객체를 글로벌 영역에 선언
+        let dayChartInstance = null;
+        let zoneChartInstance = null;
+
         async function loadAdminDashboardData() {
             const adminPw = 'salesioadmin15130!';
             // 1. 비밀번호 및 마스터 현황 테이블 로드
@@ -1006,6 +1071,61 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
                     <td style="font-size:0.7rem;">${w.time}</td>
                 </tr>
             `).join('') || '<tr><td colspan="3" style="text-align:center;">수신함이 비어있습니다.</td></tr>';
+
+            // 3. 실시간 통계 데이터 요청 및 Chart.js 렌더링 파이프라인 가동
+            try {
+                const resStats = await fetch('/api/admin/stats');
+                const statsData = await resStats.json();
+
+                // 📅 요일별 차트 바인딩 (세로 막대 그래프)
+                const ctxDay = document.getElementById('dayChart').getContext('2d');
+                if (dayChartInstance) dayChartInstance.destroy(); // 기존 차트 인스턴스 파괴 및 잔상 제거
+                dayChartInstance = new Chart(ctxDay, {
+                    type: 'bar',
+                    data: {
+                        labels: Object.keys(statsData.dayStats),
+                        datasets: [{
+                            label: '예약 총 인원 수',
+                            data: Object.values(statsData.dayStats),
+                            backgroundColor: 'rgba(16, 152, 173, 0.7)',
+                            borderColor: 'rgba(16, 152, 173, 1)',
+                            borderWidth: 1.5
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+                    }
+                });
+
+                // 🏢 구역별 선호도 차트 바인딩 (도넛 그래프)
+                const ctxZone = document.getElementById('zoneChart').getContext('2d');
+                if (zoneChartInstance) zoneChartInstance.destroy();
+                zoneChartInstance = new Chart(ctxZone, {
+                    type: 'doughnut',
+                    data: {
+                        labels: Object.keys(statsData.zoneStats),
+                        datasets: [{
+                            data: Object.values(statsData.zoneStats),
+                            backgroundColor: [
+                                '#3498db', // AI실
+                                '#2ecc71', // MARIA실
+                                '#f1c40f', // 창가
+                                '#9b59b6'  // 일반
+                            ],
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom' } }
+                    }
+                });
+            } catch(err) {
+                console.error("실시간 통계 그래프 로드 중 오류 발생:", err);
+            }
         }
 
         async function forceChangePw(targetId) {
@@ -1057,6 +1177,34 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
             alert('예약DB 초기화 완료.');
             await pollSystemStatus();
         });
+
+        // 초기화 완료 또는 모달 로드 시점에 통계 그래프 레이아웃을 동적으로 표현하기 위한 HTML 동적 주입 스크립트 실행
+        // (기존 스크립트 블록 내 버튼 이벤트 리스너 바로 아래 배치되어 UI 구역을 강제 바인딩합니다.)
+        const adminModalElement = document.getElementById('admin-modal');
+        if (adminModalElement && !document.getElementById('admin-stats-dashboard-panel')) {
+            const statsContainer = document.createElement('div');
+            statsContainer.id = 'admin-stats-dashboard-panel';
+            statsContainer.style.cssText = "margin-top: 25px; border-top: 2px dashed #e3fafc; padding-top: 20px;";
+            statsContainer.innerHTML = `
+                <h4 style="margin: 0 0 15px 0; color: #1098ad;">📊 실시간 자습실 이용률 통계 대시보드</h4>
+                <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 260px; background: #fff; border: 1px solid #e3fafc; padding: 12px; border-radius: 6px;">
+                        <h5 style="margin: 0 0 10px 0; text-align: center; color: #555;">📅 요일별 실시간 예약 현황</h5>
+                        <div style="height: 200px; position: relative;">
+                            <canvas id="dayChart"></canvas>
+                        </div>
+                    </div>
+                    <div style="flex: 1; min-width: 260px; background: #fff; border: 1px solid #e3fafc; padding: 12px; border-radius: 6px;">
+                        <h5 style="margin: 0 0 10px 0; text-align: center; color: #555;">🏢 구역별 이용 선호도 (누적)</h5>
+                        <div style="height: 200px; position: relative;">
+                            <canvas id="zoneChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            `;
+            // 관리자 모달 내 적절한 하단 컨텐츠 영역에 결합되도록 컴포넌트 추가 처리
+            adminModalElement.appendChild(statsContainer);
+        }
 
         // 대용량 SheetJS 기반 엑셀 업로드 자동 파싱 연동 시스템
         document.getElementById('admin-excel-file').addEventListener('change', function(e) {

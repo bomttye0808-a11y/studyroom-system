@@ -395,6 +395,40 @@ app.post('/api/admin/set-censored', (req, res) => {
     res.json({ success: true, count: db.censoredWords.length });
 });
 
+// [ADMIN API] 실시간 자습실 이용 통계 데이터 가공 엔드포인트 추가
+app.get('/api/admin/stats', (req, res) => {
+    const db = readDB();
+    const reservations = db.reservations || {};
+    const days = ['월', '화', '수', '목', '금'];
+    
+    // 통계용 기초 바인딩 구조 객체 선언
+    const dayStats = { '월': 0, '화': 0, '수': 0, '목': 0, '금': 0 };
+    const zoneStats = { 'AI실': 0, 'MARIA실': 0, '창가': 0, '일반': 0 };
+
+    days.forEach(day => {
+        const dayData = reservations[day] || {};
+        dayStats[day] = Object.keys(dayData).length; // 요일별 총 예약 건수 합산
+
+        // 배치 데이터 내부의 각 좌석번호 유형을 검사하여 선호 구역 통계 계산
+        Object.keys(dayData).forEach(seatKey => {
+            const seatNum = parseInt(seatKey, 10);
+            
+            // 시스템 상의 좌석 정의 규칙 기반 분기 처리 (기존 룸 구조의 넘버링에 맞춰 조정 가능)
+            if (seatNum >= 1 && seatNum <= 32) {
+                zoneStats['AI실']++;
+            } else if (seatNum >= 33 && seatNum <= 80) {
+                zoneStats['MARIA실']++;
+            } else if (seatNum >= 81 && seatNum <= 110) {
+                zoneStats['창가']++;
+            } else {
+                zoneStats['일반']++;
+            }
+        });
+    });
+
+    res.json({ dayStats, zoneStats });
+});
+
 // [ADMIN API] 귓속말 수신함 전체 조회
 app.post('/api/admin/whispers-box', (req, res) => {
     const { password } = req.body;
