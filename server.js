@@ -208,36 +208,49 @@ app.get('/api/status', async (req, res) => {
     }
 });
 
-// [API] 학적부 기반 패스워드 최초 가입 및 통합 인증 모듈
+// [API] 학적부 기반 패스워드 최초 가입 및 통합 인증 모듈 (수정본)
 app.post('/api/login', async (req, res) => {
     const { studentId, password } = req.body;
 
+    // 1. 최고 관리자 로그인 처리
     if (studentId === 'salesio' && password === ADMIN_PASSWORD) {
         const token = jwt.sign({ studentId: 'salesio', role: 'admin' }, JWT_SECRET, { expiresIn: '8h' });
         return res.json({ success: true, isAdmin: true, name: '관리자', token: token });
     }
 
     try {
+        // 2. 학적 마스터에 등록된 학생인지 검증
         const [master] = await pool.query("SELECT name FROM student_master WHERE student_id = ?", [studentId]);
         if (master.length === 0) {
             return res.status(400).json({ success: false, message: '등록되지 않은 학번입니다.' });
         }
 
         const [pwRows] = await pool.query("SELECT password_hash FROM passwords WHERE student_id = ?", [studentId]);
+        
+        // 3. 최초 가입 (비밀번호 설정 없음 -> 새로 등록)
         if (pwRows.length === 0) {
             if (password && password.length === 4 && !isNaN(password)) {
+                // 안전하게 student_id와 password_hash 매핑 매개변수 주입
                 await pool.query("INSERT INTO passwords (student_id, password_hash) VALUES (?, ?)", [studentId, password]);
-                return res.json({ success: true, isAdmin: false, name: master[0].name });
+                
+                // 회원가입 직후 바로 로그인 상태가 되도록 토큰 발급
+                const token = jwt.sign({ studentId: studentId, role: 'student' }, JWT_SECRET, { expiresIn: '8h' });
+                return res.json({ success: true, isAdmin: false, name: master[0].name, token: token });
             } else {
                 return res.status(400).json({ success: false, message: '최초 비밀번호는 숫자 4자리여야 합니다.' });
             }
         } else {
+            // 4. 기존 가입 유저 비밀번호 검증
             if (pwRows[0].password_hash !== password) {
                 return res.status(400).json({ success: false, message: '학번/비밀번호가 일치하지 않습니다.' });
             }
-            return res.json({ success: true, isAdmin: false, name: master[0].name });
+            
+            // 로그인 성공 시 미들웨어 게이트 통과용 JWT 토큰 첨부 필수
+            const token = jwt.sign({ studentId: studentId, role: 'student' }, JWT_SECRET, { expiresIn: '8h' });
+            return res.json({ success: true, isAdmin: false, name: master[0].name, token: token });
         }
     } catch (err) {
+        console.error("로그인 오류 상세:", err);
         res.status(500).json({ message: '로그인 검증 시스템 에러' });
     }
 });
