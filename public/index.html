@@ -953,19 +953,17 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
         }
 
         // 하단 텍스트 링크 기반 관리자 인증 수단 개체 활성화
-        document.body.insertAdjacentHTML('beforeend', `<footer id="admin-trigger-area" style="display: none;">
-        <span class="admin-link" onclick="openAdminDashboard()">[⚙️ 관리자 시스템 패널 진입]</span>
-    </footer>`);
+        document.body.insertAdjacentHTML('beforeend', `
+            <footer id="admin-trigger-area" style="display: none;">
+                <span class="admin-link" onclick="openAdminDashboard()" style="cursor: pointer;">[⚙️ 관리자 시스템 패널 진입]</span>
+            </footer>
+        `);
         
-        document.getElementById('footer-admin-link').addEventListener('click', () => {
-            const pw = prompt('관리자 마스터 비밀번호를 입력하세요:');
-            if (pw === 'salesioadmin15130!') {
-                document.getElementById('admin-modal').style.display = 'block';
-                loadAdminDashboardData();
-            } else if (pw !== null) {
-                alert('비밀번호가 올바르지 않습니다.');
-            }
-        });
+        // 클릭 시 다이렉트로 관리자 패널을 여는 함수 정의 (요구사항 1 완벽 매칭)
+        function openAdminDashboard() {
+            document.getElementById('admin-modal').style.display = 'block';
+            loadAdminDashboardData();
+        }
 
         document.getElementById('admin-close-btn').addEventListener('click', () => {
             document.getElementById('admin-modal').style.display = 'none';
