@@ -20,6 +20,7 @@ const pool = mysql.createPool({
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASSWORD || 'your_password',
     database: process.env.DB_NAME || 'salesio_studyroom',
+    port: Number(process.env.DB_PORT) || 3306, // 👈 이 줄이 꼭! 들어가야 포트 38693을 인식합니다.
     waitForConnections: true,
     connectionLimit: 60,
     queueLimit: 0
