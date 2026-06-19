@@ -347,6 +347,7 @@
         let currentUser = null;
         let currentUserName = "";
         let isAdminMode = false;
+        let currentSelectedStudentForAdmin = null; // 관리자가 제어하기 위해 클릭한 좌석의 학생 학번 임시 저장소
         let systemOpenTime = "";
         let globalReservations = {};
         let activeReplyParentId = null;
@@ -690,15 +691,29 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
 
         document.getElementById('day-picker').addEventListener('change', updateRealtimeSeatsUI);
 
-        // 원터치 좌석 변경 처리 엔진
+        // 원터치 좌석 변경 처리 및 관리자 행정 제어 분기 엔진
         async function triggerSeatReservation(seatId, roomType) {
-            if (isAdminMode) return alert('관리자는 좌석을 예약할 수 없습니다.');
+            const day = document.getElementById('day-picker').value;
+            const dayRes = globalReservations[day] || {};
+
+            // [Step 3 관리자 권한 분기] 관리자 모드일 경우의 행정 통제 로직
+            if (isAdminMode) {
+                if (!dayRes[seatId] || !dayRes[seatId].studentId) {
+                    alert('예약되지 않은 빈 좌석입니다. 예약이 존재하는 좌석만 출결 및 노쇼 제어가 가능합니다.');
+                    return;
+                }
+                // 전역 변수에 현재 관리자가 선택한 좌석의 학생 학번을 바인딩
+                currentSelectedStudentForAdmin = dayRes[seatId].studentId;
+                
+                // 관리자 전용 모달 팝업 가시화
+                document.getElementById('admin-control-modal').style.display = 'block';
+                return;
+            }
+
+            // --- 이 하 원 본 학 생 용 예 약 프 로 세 스 ---
             if (!systemOpenTime || new Date(systemOpenTime) > new Date()) {
                 return alert('아직 예약 시간이 아닙니다.');
             }
-
-            const day = document.getElementById('day-picker').value;
-            const dayRes = globalReservations[day] || {};
             
             if (dayRes[seatId]) {
                 if (dayRes[seatId].studentId === currentUser) {
@@ -1021,7 +1036,24 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
             alert(`학번 ${targetId}의 비밀번호를 강제 변경 완료했습니다.`);
             loadAdminDashboardData();
         }
-
+// 프론트엔드 대기열 양도 알림 모니터링 엔진
+async function invokeQueueNotificationCheck(studentId) {
+    try {
+        const res = await fetch(`/api/queue-notification/${studentId}`);
+        if(res.ok) {
+            const data = await res.json();
+            if(data.newAllocations && data.newAllocations.length > 0) {
+                data.newAllocations.forEach(item => {
+                    alert(`🎉 [대기열 자동 배정 알림]\n신청하신 ${item.day}의 좌석 [${item.seat_id}]이(가) 앞번 예약자의 취소로 인해 회원님께 자동으로 양도 확정 배정되었습니다!`);
+                });
+                // 최신 UI 상태 동기화 재렌더링 처리 호출 트리거
+                if(typeof loadAdminDashboardData === 'function') loadAdminDashboardData();
+            }
+        }
+    } catch(e) {
+        console.error("알림 확인 오류", e);
+    }
+}
         // 공지사항 바 업데이트
         document.getElementById('admin-notice-btn').addEventListener('click', async () => {
             const text = document.getElementById('admin-notice-input').value.trim();
@@ -1106,5 +1138,33 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
         });
         
     </script>
+    <div id="admin-control-modal" class="admin-modal" style="display:none; width:350px;">
+    <h4>🛠️ 관리자 전용 좌석/출결 통제 시스템</h4>
+    <div style="display:flex; flex-direction:column; gap:10px; margin-top:15px;">
+        <button onclick="submitAdminAction('EARLY_LEAVE')" style="background:#e67e22; color:#fff; padding:10px; border:none; border-radius:4px; font-weight:bold; cursor:pointer;">조퇴 처리</button>
+        <button onclick="submitAdminAction('ABSENT')" style="background:#e74c3c; color:#fff; padding:10px; border:none; border-radius:4px; font-weight:bold; cursor:pointer;">결석 처리</button>
+        <button onclick="submitAdminAction('NOSHOW_WARN')" style="background:#d63031; color:#fff; padding:10px; border:none; border-radius:4px; font-weight:bold; cursor:pointer;">⚠️ 노쇼 경고 부여</button>
+        <button onclick="document.getElementById('admin-control-modal').style.display='none';" style="background:#7f8c8d; color:#fff; padding:8px; border:none; border-radius:4px; cursor:pointer; margin-top:5px;">닫기</button>
+    </div>
+</div>
+
+<script>
+async function submitAdminAction(actionType) {
+    if(!currentSelectedStudentForAdmin) return;
+    const res = await fetch('/api/admin/attendance-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            password: 'salesioadmin15130!', // 세션 토큰화 전 인증키 활용
+            studentId: currentSelectedStudentForAdmin,
+            actionType: actionType
+        })
+    });
+    if(res.ok) {
+        alert("행정 처리가 성공적으로 영구 반영되었습니다 (학생 비공개).");
+        document.getElementById('admin-control-modal').style.display = 'none';
+    }
+}
+</script>
 </body>
 </html>
