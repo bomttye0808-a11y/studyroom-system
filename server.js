@@ -20,7 +20,7 @@ const pool = mysql.createPool({
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASSWORD || 'your_password',
     database: process.env.DB_NAME || 'salesio_studyroom',
-    port: Number(process.env.DB_PORT) || 3306, // 👈 이 줄이 꼭! 들어가야 포트 38693을 인식합니다.
+    port: Number(process.env.DB_PORT) || 3306,
     waitForConnections: true,
     connectionLimit: 60,
     queueLimit: 0
@@ -126,7 +126,9 @@ async function initDatabase() {
 }
 initDatabase();
 
-// [보안] JWT 기반 최고 관리자 검증 미들웨어
+// ==========================================
+// Step 5. 백엔드 중심의 관리자 권한 교차 검증 게이트 미들웨어
+// ==========================================
 function adminAuthorizationGate(req, res, next) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -137,6 +139,8 @@ function adminAuthorizationGate(req, res, next) {
 
     jwt.verify(token, JWT_SECRET, (err, user) => {
         if (err) return res.status(403).json({ message: '보안 검증 토큰이 유효하지 않습니다.' });
+        
+        // F12 변조 방지 교차 매칭 검증 강화: 토큰 내 studentId가 철자까지 완벽히 'salesio'인지 검증
         if (user.studentId !== 'salesio') {
             return res.status(403).json({ message: '위조된 접근 시도입니다. 해당 행위는 로그에 기록됩니다.' });
         }
@@ -145,7 +149,8 @@ function adminAuthorizationGate(req, res, next) {
     });
 }
 
-// 관리자 통제 보호 대상 라우터 진입 라우팅 필터
+// [관리자 전용 API 전역 필터링 레이어 적용]
+// 기존 바디 패스워드 검증 방식과 상호 보완 교차 배치하여 완벽 보호막 형성
 app.use('/api/admin/', (req, res, next) => {
     if (req.body && req.body.password === ADMIN_PASSWORD) {
         return next();
@@ -209,18 +214,16 @@ app.get('/api/status', async (req, res) => {
     }
 });
 
-// [API] 학적부 기반 패스워드 최초 가입 및 통합 인증 모듈 (수정본)
+// [API] 학적부 기반 패스워드 최초 가입 및 통합 인증 모듈
 app.post('/api/login', async (req, res) => {
     const { studentId, password } = req.body;
 
-    // 1. 최고 관리자 로그인 처리
     if (studentId === 'salesio' && password === ADMIN_PASSWORD) {
         const token = jwt.sign({ studentId: 'salesio', role: 'admin' }, JWT_SECRET, { expiresIn: '8h' });
         return res.json({ success: true, isAdmin: true, name: '관리자', token: token });
     }
 
     try {
-        // 2. 학적 마스터에 등록된 학생인지 검증
         const [master] = await pool.query("SELECT name FROM student_master WHERE student_id = ?", [studentId]);
         if (master.length === 0) {
             return res.status(400).json({ success: false, message: '등록되지 않은 학번입니다.' });
@@ -228,25 +231,18 @@ app.post('/api/login', async (req, res) => {
 
         const [pwRows] = await pool.query("SELECT password_hash FROM passwords WHERE student_id = ?", [studentId]);
         
-        // 3. 최초 가입 (비밀번호 설정 없음 -> 새로 등록)
         if (pwRows.length === 0) {
             if (password && password.length === 4 && !isNaN(password)) {
-                // 안전하게 student_id와 password_hash 매핑 매개변수 주입
                 await pool.query("INSERT INTO passwords (student_id, password_hash) VALUES (?, ?)", [studentId, password]);
-                
-                // 회원가입 직후 바로 로그인 상태가 되도록 토큰 발급
                 const token = jwt.sign({ studentId: studentId, role: 'student' }, JWT_SECRET, { expiresIn: '8h' });
                 return res.json({ success: true, isAdmin: false, name: master[0].name, token: token });
             } else {
                 return res.status(400).json({ success: false, message: '최초 비밀번호는 숫자 4자리여야 합니다.' });
             }
         } else {
-            // 4. 기존 가입 유저 비밀번호 검증
             if (pwRows[0].password_hash !== password) {
                 return res.status(400).json({ success: false, message: '학번/비밀번호가 일치하지 않습니다.' });
             }
-            
-            // 로그인 성공 시 미들웨어 게이트 통과용 JWT 토큰 첨부 필수
             const token = jwt.sign({ studentId: studentId, role: 'student' }, JWT_SECRET, { expiresIn: '8h' });
             return res.json({ success: true, isAdmin: false, name: master[0].name, token: token });
         }
@@ -280,7 +276,6 @@ app.post('/api/reserve', async (req, res) => {
     try {
         await conn.beginTransaction();
 
-        // 시스템 오픈 제약 조건 점검
         const [cfgRows] = await conn.query("SELECT cfg_value FROM system_config WHERE cfg_key = 'open_time'");
         const openTime = cfgRows.length > 0 ? cfgRows[0].cfg_value : "";
         if (!openTime || new Date(openTime) > new Date()) {
@@ -288,7 +283,6 @@ app.post('/api/reserve', async (req, res) => {
             return res.status(403).json({ message: '아직 예약 시간이 아닙니다.' });
         }
 
-        // 기존 요일 배정 이력 자동 취소 파기
         const [existing] = await conn.query("SELECT seat_id FROM reservations WHERE day = ? AND student_id = ?", [day, studentId]);
         let canceledSeat = null;
         if (existing.length > 0) {
@@ -296,14 +290,12 @@ app.post('/api/reserve', async (req, res) => {
             await conn.query("DELETE FROM reservations WHERE day = ? AND student_id = ?", [day, studentId]);
         }
 
-        // 목적 타겟 좌석 선점 여부 검증
         const [seatCheck] = await conn.query("SELECT id FROM reservations WHERE day = ? AND seat_id = ? FOR UPDATE", [day, seatId]);
         if (seatCheck.length > 0) {
             await conn.rollback();
             return res.status(400).json({ message: '이미 선점된 좌석입니다.' });
         }
 
-        // 신규 예약 배치 커밋
         await conn.query("INSERT INTO reservations (day, room_type, seat_id, student_id) VALUES (?, ?, ?, ?)", [day, roomType, seatId, studentId]);
 
         await conn.commit();
@@ -316,7 +308,9 @@ app.post('/api/reserve', async (req, res) => {
     }
 });
 
-// [API] 동시성 격리 예약 취소 및 순차 대기열 양도 자동화 엔진
+// ==========================================
+// Step 7. 대기열(예약 알림 신청) 취소 및 순차 대기열 트랜잭션 자동 배정 양도 로직
+// ==========================================
 app.post('/api/cancel', async (req, res) => {
     const { studentId, day, seatId } = req.body;
     const conn = await pool.getConnection();
@@ -330,11 +324,12 @@ app.post('/api/cancel', async (req, res) => {
             return res.status(400).json({ message: '유효한 예약 내역이 검색되지 않습니다.' });
         }
 
+        // 1. 기존 취소 신청 좌석 파기
         await conn.query("DELETE FROM reservations WHERE day = ? AND seat_id = ?", [day, seatId]);
 
-        // 대기열 최우선 순위 1명 서칭 추출
+        // 2. 대기열 최우선 순위 1명 탐색 추출 (트랜잭션 락 처리)
         const [nextQueue] = await conn.query(
-            "SELECT student_id, id FROM queue WHERE day = ? AND seat_id = ? AND notified = 0 ORDER BY priority ASC LIMIT 1 FOR UPDATE",
+            "SELECT student_id, id FROM queue WHERE day = ? AND seat_id = ? AND notified = 0 ORDER BY priority ASC, created_at ASC LIMIT 1 FOR UPDATE",
             [day, seatId]
         );
 
@@ -344,11 +339,13 @@ app.post('/api/cancel', async (req, res) => {
             const queueTableId = nextQueue[0].id;
             const targetRoomType = seatId.toUpperCase().startsWith('M') ? 'MARIA' : 'AI';
 
+            // 3. 공백이 생긴 즉시 대기 1순위 학생에게 좌석 자동 배정 양도
             await conn.query(
                 "INSERT INTO reservations (day, room_type, seat_id, student_id) VALUES (?, ?, ?, ?)",
                 [day, targetRoomType, seatId, transferredStudent]
             );
 
+            // 4. 알림 수신 대상 예약 완료 트리거 인덱스 전송 설정 (notified = 1)
             await conn.query("UPDATE queue SET notified = 1 WHERE id = ?", [queueTableId]);
         }
 
@@ -362,12 +359,13 @@ app.post('/api/cancel', async (req, res) => {
     }
 });
 
-// [API] 로그인/리프레시 시 대기열 양도 완료 알림 팝업 통제 서브 라우터
+// [API] 로그인/리프레시 대기열 자동 양도 완료 알림 안내 팝업 서브 라우터
 app.get('/api/queue-notification/:studentId', async (req, res) => {
     const { studentId } = req.params;
     try {
         const [notifications] = await pool.query("SELECT seat_id, day FROM queue WHERE student_id = ? AND notified = 1", [studentId]);
         if (notifications.length > 0) {
+            // 사용자 확인 후 코드 스케줄 파기 처리 완료 전이 (notified = 2)
             await pool.query("UPDATE queue SET notified = 2 WHERE student_id = ? AND notified = 1", [studentId]);
         }
         res.json({ newAllocations: notifications });
@@ -410,7 +408,6 @@ app.post('/api/comments/add', async (req, res) => {
         const [master] = await pool.query("SELECT name FROM student_master WHERE student_id = ?", [studentId]);
         if (master.length === 0) return res.status(403).json({ message: '권한이 없습니다.' });
 
-        // 블랙리스트(차단 일시) 시간 제한 규칙 적용 점검
         const [banRows] = await pool.query(
             "SELECT created_at FROM attendance_noshow WHERE student_id = ? AND type = 'NOSHOW_WARN' ORDER BY id DESC LIMIT 1",
             [studentId]
@@ -451,23 +448,28 @@ app.post('/api/comments/add', async (req, res) => {
     }
 });
 
-// [API] 중복 테러 차단 매핑 및 누적 차단 트랜잭션 라우터
+// ==========================================
+// Step 6. 중복 신고 테러 방지 로직 (DB 수준 UNIQUE 제약 조건 결합)
+// ==========================================
 app.post('/api/comments/report', async (req, res) => {
     const { commentId, reporterId } = req.body;
-    if (!commentId || !reporterId) return res.status(400).json({ message: '인자가 유락되었습니다.' });
+    if (!commentId || !reporterId) return res.status(400).json({ message: '인자가 누락되었습니다.' });
 
     const conn = await pool.getConnection();
     try {
         await conn.beginTransaction();
 
+        // 1. 중복 신고 차단 교차 이력 확인 검증
         const [existingReport] = await conn.query("SELECT id FROM reports WHERE comment_id = ? AND reporter_id = ?", [commentId, reporterId]);
         if (existingReport.length > 0) {
             await conn.rollback();
             return res.status(400).json({ message: '🚨 이미 신고를 접수한 익명 글/댓글입니다. 한 학생은 한 글당 딱 1번만 신고할 수 있습니다.' });
         }
 
+        // 2. 신규 무결성 신고 데이터 이력 매핑 기록
         await conn.query("INSERT INTO reports (comment_id, reporter_id) VALUES (?, ?)", [commentId, reporterId]);
 
+        // 3. 누적 카운트 조회 연산 후 3회 이상 검출 시 제재 처리 자동 통제
         const [countRows] = await conn.query("SELECT COUNT(*) as total_reports FROM reports WHERE comment_id = ?", [commentId]);
         const currentReportCount = countRows[0].total_reports;
 
@@ -484,6 +486,10 @@ app.post('/api/comments/report', async (req, res) => {
         res.json({ success: true, message: '정상적으로 신고 처리가 완료되었습니다.', currentReports: currentReportCount });
     } catch (err) {
         await conn.rollback();
+        // UNIQUE KEY 익셉션 에러 레이어 한 번 더 바인딩 처리
+        if (err.code === 'ER_DUP_ENTRY') {
+            return res.status(400).json({ message: '🚨 이미 신고를 접수한 익명 글/댓글입니다. 중복 신고는 불가능합니다.' });
+        }
         res.status(500).json({ message: '신고 처리 중 오류 발생' });
     } finally {
         conn.release();
@@ -574,11 +580,14 @@ app.get('/api/whisper/my/:id', async (req, res) => {
 
 // ================= [ 최고 관리자(ADMIN) 전용 API 엔드포인트 ] =================
 
-// [ADMIN API] 관리자 전용 노쇼/출결 상태 기록
+// ==========================================
+// Step 3. 관리자 전용 좌석 제어 및 비공개 출결/노쇼 누적 저장 모듈
+// ==========================================
 app.post('/api/admin/attendance-action', async (req, res) => {
-    const { studentId, actionType } = req.body;
+    const { studentId, actionType } = req.body; // actionType: 'EARLY_LEAVE', 'ABSENT', 'NOSHOW_WARN'
     try {
         const todayStr = new Date().toISOString().split('T')[0];
+        // 일자별 며칠이든 몇 달이든 안전하게 누적 테이블 적재 처리
         await pool.query("INSERT INTO attendance_noshow (student_id, type, date) VALUES (?, ?, ?)", [studentId, actionType, todayStr]);
         res.json({ success: true });
     } catch (err) {
@@ -586,10 +595,11 @@ app.post('/api/admin/attendance-action', async (req, res) => {
     }
 });
 
-// [ADMIN API] 비공개 학년/반별 노쇼 통제 이력 역추적 조회
+// 관리자용 비공개 노쇼/출결 정보 반별 추적 및 통계 조회 API (보안 엄수)
 app.post('/api/admin/noshow-history', async (req, res) => {
     const { grade, classNum } = req.body;
     try {
+        // Step 4 반별 로직 연동: 학번 앞 자리를 분석 기점으로 조회용 와일드카드 구현
         const pattern = `${grade}${String(classNum).padStart(2, '0')}%`;
         const [rows] = await pool.query(`
             SELECT a.student_id, sm.name, COUNT(a.id) as warn_count, GROUP_CONCAT(DATE_FORMAT(a.date, '%Y-%m-%d')) as dates
@@ -615,41 +625,58 @@ app.post('/api/admin/notice', async (req, res) => {
     }
 });
 
-// [ADMIN API] 엑셀 기반 전체 학적 인서트 통합 라우터 (주소명과 프론트엔드 파싱 대응 동기화 보정)
-app.post('/api/admin/sync-students', async (req, res) => {
-    const { students } = req.body;
+// ==========================================
+// Step 2. 학적부 데이터 영구 보존 및 완전 대체 (TRUNCATE 초기화 통제)
+// ==========================================
+// 기존 sync-students와 upload-students의 주소 처리 혼선 방지를 위한 통일 바인딩
+const handleExcelSync = async (req, res) => {
+    const { students } = req.body; // [{studentId, name}]
     const conn = await pool.getConnection();
     try {
         await conn.beginTransaction();
 
+        // [제약 조건] 자습실 예약 현황이 완전히 비어있을 때만 대체 승인 검증
         const [resRows] = await conn.query("SELECT COUNT(*) as cnt FROM reservations");
         if (resRows[0].cnt > 0) {
             await conn.rollback();
             return res.status(400).json({ message: '예약 현황이 완전히 초기화(비어있는 상태)된 상태에서만 학적부 엑셀 업로드가 허용됩니다.' });
         }
 
+        // 기존 테이블 완전 초기화 대체 이행 (TRUNCATE 처리)
         await conn.query("SET FOREIGN_KEY_CHECKS = 0;");
         await conn.query("TRUNCATE TABLE passwords;");
         await conn.query("TRUNCATE TABLE student_master;");
         await conn.query("SET FOREIGN_KEY_CHECKS = 1;");
 
+        // 엑셀 파싱 전송 구조가 유실 없이 안정 적재되도록 키 매핑 수렴 보안 조치
         if (students && students.length > 0) {
             const insertQuery = "INSERT INTO student_master (student_id, name) VALUES ?";
-            const values = students.map(s => [s.studentId || s.student_id, s.name]);
+            const values = students.map(s => {
+                const sId = s.studentId || s.student_id || s['학번'];
+                const sName = s.name || s['이름'];
+                return [sId, sName];
+            });
             await conn.query(insertQuery, [values]);
         }
 
         await conn.commit();
-        res.json({ success: true, count: students.length });
+        res.json({ success: true, count: students.length, message: "학적부 데이터가 성공적으로 완전 대체 및 영구 보존되었습니다." });
     } catch (err) {
         await conn.rollback();
+        console.error(err);
         res.status(500).json({ message: '학적 마스터 데이터 동기화 에러' });
     } finally {
         conn.release();
     }
-});
+};
 
-// [ADMIN API] 명단 덤프 가공 추출기
+// 프론트엔드가 요청할 수 있는 두 개 엔드포인트 모두 완벽 매핑 대응 조치
+app.post('/api/admin/sync-students', handleExcelSync);
+app.post('/api/admin/upload-students', handleExcelSync);
+
+// ==========================================
+// Step 4. 학번 분석 기반 반별 명단 정리 데이터 가공
+// ==========================================
 app.post('/api/admin/report-by-class', async (req, res) => {
     try {
         const [reservations] = await pool.query(`
@@ -660,11 +687,12 @@ app.post('/api/admin/report-by-class', async (req, res) => {
 
         const structuredData = {};
         reservations.forEach(r => {
-            const sid = r.student_id;
+            const sid = String(r.student_id);
+            // 학번 5자리 규칙성 마스킹 해독 검증
             if (sid.length === 5) {
-                const grade = sid.substring(0, 1);
-                const classNum = parseInt(sid.substring(1, 3), 10);
-                const number = sid.substring(3, 5);
+                const grade = sid.substring(0, 1);            // 1번째 자리: 학년
+                const classNum = parseInt(sid.substring(1, 3), 10); // 2~3번째 자리: 반
+                const number = sid.substring(3, 5);            // 4~5번째 자리: 번호
 
                 if (!structuredData[grade]) structuredData[grade] = {};
                 if (!structuredData[grade][classNum]) structuredData[grade][classNum] = [];
