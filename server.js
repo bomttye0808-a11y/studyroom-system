@@ -601,7 +601,7 @@ app.post('/api/admin/notice', async (req, res) => {
     }
 });
 
-// [ADMIN API] 벌크 인서트 적용 신규 학적 마스터 강제 동기화 (자습실 청소 상태 점검)
+// [ADMIN API] 엑셀 기반 전체 학적 인서트 통합 라우터 (주소명과 프론트엔드 파싱 대응 동기화 보정)
 app.post('/api/admin/sync-students', async (req, res) => {
     const { students } = req.body;
     const conn = await pool.getConnection();
@@ -621,7 +621,7 @@ app.post('/api/admin/sync-students', async (req, res) => {
 
         if (students && students.length > 0) {
             const insertQuery = "INSERT INTO student_master (student_id, name) VALUES ?";
-            const values = students.map(s => [s.studentId, s.name]);
+            const values = students.map(s => [s.studentId || s.student_id, s.name]);
             await conn.query(insertQuery, [values]);
         }
 
