@@ -459,50 +459,102 @@
         }
 
         function buildMeshDOM(targetId, matrix, roomType) {
-            const container = document.getElementById(targetId);
-            container.innerHTML = "";
+    const container = document.getElementById(targetId);
+    container.innerHTML = "";
+    
+    // 행 인덱스(r)를 함께 추적하기 위해 forEach에 인덱스 매개변수 r 추가
+    matrix.forEach((row, r) => {
+        // 안쪽 루프를 인덱스 조작(c++)이 가능한 일반 for문으로 변경합니다.
+        for (let c = 0; c < row.length; c++) {
+            const cell = row[c];
+            const node = document.createElement('div');
             
-            matrix.forEach(row => {
-                row.forEach(cell => {
-                    const node = document.createElement('div');
-                    if (cell === "") {
-                        node.className = 'seat-space-empty';
-                    } else if (cell === "❚") {
-                        node.className = 'zone-label wall-node';
-                        node.innerText = "❚";
-                    } else if (cell === "🔌" || cell === "🔌플러그") {
-                        node.className = 'zone-label plug-node';
-                        node.innerText = "🔌";
-                    } else if (cell === "일반" || cell === "창가" || cell === "데스크") {
-                        node.className = 'zone-label clickable-label';
-                        if (cell === '데스크') node.classList.add('desk-label-style');
-                        node.innerText = cell;
-                        
-                        // 시각화 가이드 이미지 모달 바인딩 연동 (정제 주소 매핑)
-                        node.addEventListener('click', () => {
-                            let key = cell;
-                            if (cell === '일반') {
-                                key = (roomType === 'AI') ? 'AI_일반' : 'MARIA_일반';
-                            }
-                            const filename = IMAGE_SOURCES[key];
-                            document.getElementById('popup-image').src = filename;
-                            document.getElementById('modal-overlay').style.display = 'block';
-                            document.getElementById('image-modal').style.display = 'block';
-                        });
-                    } else if (cell === "출입문") {
-                        node.className = 'door-node';
-                        node.innerText = "출입문";
-                    } else {
-                        // 유효 좌석 컴포넌트 
-                        node.className = (roomType === 'AI') ? 'seat-box c-ai-avail' : 'seat-box c-maria-avail';
-                        node.innerText = cell;
-                        node.id = `seat-${cell}`;
-                        node.addEventListener('click', () => triggerSeatReservation(cell, roomType));
-                    }
-                    container.appendChild(node);
+            // 💡 [가로채기 조건 1] AI실의 첫 번째 줄(r === 0)에서 "일반"을 만났을 때
+            if (roomType === 'AI' && r === 0 && cell === "일반") {
+                node.className = 'zone-label clickable-label';
+                node.innerText = cell;
+                node.style.gridColumn = 'span 2'; // 2칸 차지
+                
+                // 기존 디자인 파괴 및 투명화 처리
+                node.style.background = 'transparent';
+                node.style.border = 'none';
+                node.style.boxShadow = 'none';
+                
+                // 기존 모달 바인딩 로직 그대로 유지
+                node.addEventListener('click', () => {
+                    let key = (roomType === 'AI') ? 'AI_일반' : 'MARIA_일반';
+                    const filename = IMAGE_SOURCES[key];
+                    document.getElementById('popup-image').src = filename;
+                    document.getElementById('modal-overlay').style.display = 'block';
+                    document.getElementById('image-modal').style.display = 'block';
                 });
-            });
+                
+                container.appendChild(node);
+                c++; // 💡 핵심: 2칸을 차지했으므로 다음 연속된 "일반" 칸은 건너뜁니다.
+                continue;
+            }
+            
+            // 💡 [가로채기 조건 2] MARIA실의 10번째 줄(r === 9)에서 "데스크"를 만났을 때
+            if (roomType === 'MARIA' && r === 9 && cell === "데스크") {
+                node.className = 'zone-label clickable-label desk-label-style';
+                node.innerText = cell;
+                node.style.gridColumn = 'span 2'; // 2칸 차지
+                
+                // 기존 디자인 파괴 및 투명화 처리
+                node.style.background = 'transparent';
+                node.style.border = 'none';
+                node.style.boxShadow = 'none';
+                
+                // 기존 모달 바인딩 로직 그대로 유지
+                node.addEventListener('click', () => {
+                    const filename = IMAGE_SOURCES['데스크'];
+                    document.getElementById('popup-image').src = filename;
+                    document.getElementById('modal-overlay').style.display = 'block';
+                    document.getElementById('image-modal').style.display = 'block';
+                });
+                
+                container.appendChild(node);
+                c++; // 💡 핵심: 2칸을 차지했으므로 다음 연속된 "데스크" 칸은 건너뜁니다.
+                continue;
+            }
+
+            // --- 이 아래부터는 기존 원본 조건문 구조가 그대로 작동합니다 ---
+            if (cell === "") {
+                node.className = 'seat-space-empty';
+            } else if (cell === "❚") {
+                node.className = 'zone-label wall-node';
+                node.innerText = "❚";
+            } else if (cell === "🔌" || cell === "🔌플러그") {
+                node.className = 'zone-label plug-node';
+                node.innerText = "🔌";
+            } else if (cell === "일반" || cell === "창가" || cell === "데스크") {
+                node.className = 'zone-label clickable-label';
+                if (cell === '데스크') node.classList.add('desk-label-style');
+                node.innerText = cell;
+                
+                node.addEventListener('click', () => {
+                    let key = cell;
+                    if (cell === '일반') {
+                        key = (roomType === 'AI') ? 'AI_일반' : 'MARIA_일반';
+                    }
+                    const filename = IMAGE_SOURCES[key];
+                    document.getElementById('popup-image').src = filename;
+                    document.getElementById('modal-overlay').style.display = 'block';
+                    document.getElementById('image-modal').style.display = 'block';
+                });
+            } else if (cell === "출입문") {
+                node.className = 'door-node';
+                node.innerText = "출입문";
+            } else {
+                node.className = (roomType === 'AI') ? 'seat-box c-ai-avail' : 'seat-box c-maria-avail';
+                node.innerText = cell;
+                node.id = `seat-${cell}`;
+                node.addEventListener('click', () => triggerSeatReservation(cell, roomType));
+            }
+            container.appendChild(node);
         }
+    });
+}
 
         // 선점 상태 일괄 실시간 UI 클래스 매핑 반영
         function updateRealtimeSeatsUI() {
