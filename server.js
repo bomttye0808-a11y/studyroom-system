@@ -20,13 +20,14 @@ const DB_PATH = path.join(__dirname, 'database.json');
 function initDatabase() {
     if (!fs.existsSync(DB_PATH)) {
         const initialSchema = {
-            studentMaster: {}, // 요구사항 반영: 초기 로드 시점 완전 빈 객체로 초기화
+            studentMaster: {}, 
             passwords: {},
             reservations: {},
             comments: [],
             openTime: "",
             censoredWords: [],
-            whispers: []
+            whispers: [],
+            blacklist: {} // 5. 블랙리스트 영속성 파일 바인딩 구조 기본 정의 추가
         };
         fs.writeFileSync(DB_PATH, JSON.stringify(initialSchema, null, 4), 'utf8');
     } else {
@@ -203,6 +204,46 @@ app.post('/api/comments/add', (req, res) => {
     const db = readDB();
     if (!db.studentMaster[studentId]) return res.status(403).json({ message: '권한이 없습니다.' });
 
+    // 5. 누적 신고 블랙리스트 7일 시간 제약 시스템 필터 커밋
+    if (db.blacklist && db.blacklist[studentId]) {
+        const bannedTime = db.blacklist[studentId];
+        const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
+        if (new Date().getTime() - bannedTime < oneWeekMs) {
+            return res.status(403).json({ message: '신고 누적으로 글쓰기가 7일간 제한되었습니다.' });
+        } else {
+            // 일주일이 경과했으면 자동으로 블랙리스트 상태 해제 처리 보존
+            delete db.blacklist[studentId];
+            writeDB(db);
+        }
+    }
+    // 5. 익명 게시글 및 댓글 누적 신고 카운팅 및 자동 블랙리스트 연동 트랜잭션 라우터
+app.post('/api/comments/report', (req, res) => {
+    const { commentId } = req.body;
+    const db = readDB();
+    
+    // 댓글 혹은 대댓글 배열 안에서 유동 ID 매칭 추적 탐색
+    let targetComment = db.comments.find(c => c.id === parseInt(commentId, 10));
+    
+    if (!targetComment) {
+        return res.status(404).json({ message: '존재하지 않거나 삭제된 게시글입니다.' });
+    }
+    
+    // 신고 카운트 가산 필드 보정 안전 누적
+    if (!targetComment.reportCount) targetComment.reportCount = 0;
+    targetComment.reportCount += 1;
+    
+    // 누적 3회 도달 검증 시 작성자 학번 기반 7일 락 타임스탬프 셋업
+    if (targetComment.reportCount >= 3) {
+        const writerStudentId = targetComment.writer;
+        if (writerStudentId && writerStudentId !== 'salesio') { // 관리자 오인 차단 방어막
+            if (!db.blacklist) db.blacklist = {};
+            db.blacklist[writerStudentId] = new Date().getTime(); // 차단된 타임스탬프 시간 저장
+        }
+    }
+    
+    writeDB(db);
+    res.json({ success: true, currentReports: targetComment.reportCount });
+});
     const filteredText = applyCensorship(text, db.censoredWords);
     const anonName = getAnonymousId(studentId, db.comments);
     const now = new Date();
