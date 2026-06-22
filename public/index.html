@@ -298,20 +298,33 @@
     <button type="button" onclick="switchAdminSubTab('noshow-dashboard')" style="flex: 1; padding: 8px; background: #e74c3c; color: #fff; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">🚨 노쇼 이력 조회</button>
 </div>
 
-            <div id="admin-attendance-check" class="admin-sub-tab" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center;">
-    <div style="background: #fff; width: 90%; max-width: 650px; padding: 20px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); position: relative; max-height: 90vh; overflow-y: auto;">
-        <h5 style="margin: 0 0 10px 0; color: #2c3e50; font-size: 1.1rem; display: flex; justify-content: space-between; align-items: center;">
-            <span>✅ 실시간 스마트 출석체크 배치도 창</span>
-            <button type="button" onclick="document.getElementById('admin-attendance-check').style.display='none';" style="background: #e74c3c; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: bold;">창 닫기</button>
-        </h5>
-        <p style="font-size: 0.75rem; color: #666; margin: -5px 0 15px 0;">💡 각 좌석 칸을 [한 번 클릭]하면 출석(녹색)과 예약(파란색) 상태가 실시간 토글 전환됩니다.</p>
+            <div id="admin-attendance-check" class="admin-sub-tab" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10000; align-items: center; justify-content: center;">
+    <div style="background: #fff; width: 95%; max-width: 850px; padding: 20px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); position: relative; max-height: 90vh; display: flex; flex-direction: column;">
+        <h4 style="margin: 0 0 10px 0; color: #2c3e50; font-size: 1.2rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #edf2f7; padding-bottom: 10px;">
+            <span>✅ (7) 실시간 스마트 출석체크 관리 배치도</span>
+            <button type="button" onclick="document.getElementById('admin-attendance-check').style.display='none';" style="background: #e74c3c; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: bold; transition: background 0.2s;">창 닫기 X</button>
+        </h4>
+        <p style="font-size: 0.82rem; color: #4a5568; margin: 0 0 15px 0; line-height: 1.5; background: #ebf8ff; padding: 8px 12px; border-radius: 6px; border-left: 4px solid #3182ce;">
+            🖱️ <b>[PC 마우스 왼쪽 클릭 / 모바일 터치]</b> : 별도의 창 없이 그 자리에서 즉시 <b>출석 완료(녹색) ↔ 예약 완료(파란색) 토글</b> (실수방지 적용)<br>
+            📱 <b>[PC 우클릭 / 모바일 1초 롱프레스]</b> : 커서 자리에 미니 메뉴가 팝업되어 <b>[조퇴 / 결석 / 노쇼 경고 / 초기화]</b> 직접 세부 제어 가능
+        </p>
+        
         <div style="margin-bottom: 15px; display: flex; gap: 8px;">
-            <button type="button" onclick="loadAttendanceGrid('today', '8교시')" style="background:#34495e; color:#fff; padding: 6px 12px; border:none; border-radius:4px; cursor:pointer; font-size:0.8rem; font-weight:bold;">8교시 배치도</button>
-            <button type="button" onclick="loadAttendanceGrid('today', '야자1')" style="background:#34495e; color:#fff; padding: 6px 12px; border:none; border-radius:4px; cursor:pointer; font-size:0.8rem; font-weight:bold;">야자 1타임</button>
-            <button type="button" onclick="loadAttendanceGrid('today', '야자2')" style="background:#34495e; color:#fff; padding: 6px 12px; border:none; border-radius:4px; cursor:pointer; font-size:0.8rem; font-weight:bold;">야자 2타임</button>
+            <button type="button" onclick="loadAttendanceGrid('today', '8교시')" style="background:#2c3e50; color:#fff; padding: 8px 16px; border:none; border-radius:6px; cursor:pointer; font-size:0.85rem; font-weight:bold;">8교시 배치도</button>
+            <button type="button" onclick="loadAttendanceGrid('today', '야자1')" style="background:#2c3e50; color:#fff; padding: 8px 16px; border:none; border-radius:6px; cursor:pointer; font-size:0.85rem; font-weight:bold;">야자 1타임</button>
+            <button type="button" onclick="loadAttendanceGrid('today', '야자2')" style="background:#2c3e50; color:#fff; padding: 8px 16px; border:none; border-radius:6px; cursor:pointer; font-size:0.85rem; font-weight:bold;">야자 2타임</button>
         </div>
-        <div id="attendance-grid-canvas" style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; background: #f8f9fa; padding: 12px; border-radius: 6px; border: 1px solid #ddd;"></div>
+        
+        <div id="attendance-grid-canvas" style="display: grid; grid-template-columns: repeat(10, 1fr); gap: 8px; background: #f7fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; overflow-y: auto; flex: 1;"></div>
     </div>
+</div>
+
+<div id="attendance-context-menu" style="display: none; position: absolute; background: #ffffff; border: 1px solid #cbd5e0; box-shadow: 0 10px 25px rgba(0,0,0,0.15); border-radius: 8px; z-index: 11000; padding: 6px 0; width: 150px; user-select: none; -webkit-user-select: none;">
+    <div onclick="executeAttendanceAction('EARLY_LEAVE')" style="padding: 10px 14px; cursor: pointer; font-size: 0.85rem; font-weight: bold; color: #e67e22; display: flex; align-items: center; gap: 6px;" onmouseover="this.style.background='#feebc8'" onmouseout="this.style.background='#fff'">🌅 조퇴 처리</div>
+    <div onclick="executeAttendanceAction('ABSENT')" style="padding: 10px 14px; cursor: pointer; font-size: 0.85rem; font-weight: bold; color: #718096; display: flex; align-items: center; gap: 6px;" onmouseover="this.style.background='#edf2f7'" onmouseout="this.style.background='#fff'">✖ 결석 처리</div>
+    <div onclick="executeAttendanceAction('NOSHOW')" style="padding: 10px 14px; cursor: pointer; font-size: 0.85rem; font-weight: bold; color: #e53e3e; display: flex; align-items: center; gap: 6px;" onmouseover="this.style.background='#fed7d7'" onmouseout="this.style.background='#fff'">🚨 노쇼 경고 부여</div>
+    <div style="height: 1px; background: #e2e8f0; margin: 4px 0;"></div>
+    <div onclick="executeAttendanceAction('RESERVED')" style="padding: 10px 14px; cursor: pointer; font-size: 0.85rem; font-weight: bold; color: #3182ce; display: flex; align-items: center; gap: 6px;" onmouseover="this.style.background='#ebf8ff'" onmouseout="this.style.background='#fff'">🔄 상태 초기화</div>
 </div>
 
 <div id="admin-noshow-dashboard" class="admin-sub-tab" style="display: none; background: #f8f9fa; padding: 12px; border-radius: 6px; border: 1px solid #e9ecef; margin-bottom: 15px;">
@@ -1457,7 +1470,209 @@ async function fetchClassNoShowHistory() {
         });
     } catch(err) { tbody.innerHTML = '<tr><td colspan="4">서버 통신 에러</td></tr>'; }
 }
+// ==========================================
+// [스마트 출석체크 기능] 전용 글로벌 전역 제어 변수 선언
+// ==========================================
+let currentActiveAttendanceTarget = null; 
+let longPressTimer = null;
+let isLongPressTriggered = false;
 
+// 관리자 탭 스위처 바인딩 보정 함수
+function switchAdminSubTab(tabId) {
+    document.querySelectorAll('.admin-sub-tab').forEach(el => el.style.display = 'none');
+    const target = document.getElementById(`admin-${tabId}`);
+    if (target) {
+        if (tabId === 'attendance-check') {
+            target.style.display = 'flex'; // 화면 정중앙 모달 유연 처리를 위해 flex 부여
+            loadAttendanceGrid('today', '8교시'); // 기본값으로 8교시 팝업 빌드업 수행
+        } else {
+            target.style.display = 'block';
+        }
+    }
+    const menu = document.getElementById('attendance-context-menu');
+    if (menu) menu.style.display = 'none';
+}
+
+// 2. 관리자 모드 메인 화면 배치도 개선 빌더 엔진
+async function loadAttendanceGrid(dayParam, roomTypeParam) {
+    const canvas = document.getElementById('attendance-grid-canvas');
+    if(!canvas) return;
+    canvas.innerHTML = '<p style="grid-column: span 10; text-align:center; padding:20px; font-size:0.9rem; color:#4a5568;">🔄 실시간 자습실 좌석 현황을 파싱하는 중입니다...</p>';
+
+    try {
+        // 백엔드 전체 예약 정보 실시간 로드
+        const res = await fetch('/api/seats-status');
+        const seatsData = await res.json();
+        canvas.innerHTML = '';
+
+        // 1번 좌석부터 60번 좌석까지 가로세로 비율 고정 격자 바인딩
+        for (let i = 1; i <= 60; i++) {
+            const seatIdString = String(i);
+            const reservation = seatsData.find(s => s.day === dayParam && s.room_type === roomTypeParam && s.seat_id === seatIdString);
+
+            const cellEl = document.createElement('div');
+            
+            // [규격 준수]: 반드시 좌석 크기는 바꾸지 않도록 고정 격자 1:1 비율 비율강제 유지
+            cellEl.style.aspectRatio = "1 / 1";
+            cellEl.style.borderRadius = "6px";
+            cellEl.style.display = "flex";
+            cellEl.style.flexDirection = "column";
+            cellEl.style.justifyContent = "center";
+            cellEl.style.alignItems = "center";
+            cellEl.style.padding = "4px";
+            cellEl.style.boxSizing = "border-box";
+            cellEl.style.position = "relative";
+            cellEl.style.userSelect = "none";
+            cellEl.style.webkitUserSelect = "none";
+            cellEl.style.transition = "transform 0.15s, box-shadow 0.15s";
+
+            // 예약이 아예 매핑되지 않은 완전 순수 공석 처리
+            if (!reservation) {
+                cellEl.style.background = "#e2e8f0";
+                cellEl.style.color = "#718096";
+                cellEl.style.border = "1px dashed #cbd5e0";
+                // 크기를 유지하는 한에서 가독성 최대 크기 폰트 주입
+                cellEl.innerHTML = `<b style="font-size: 1.25rem; font-weight: 800; line-height: 1;">${i}</b><span style="font-size: 0.72rem; font-weight: bold; opacity: 0.7; margin-top: 2px;">공석</span>`;
+                canvas.appendChild(cellEl);
+                continue;
+            }
+
+            // 출결 상태 분석 및 분기별 완벽한 지정 색상 매핑
+            const currentStatus = reservation.attendance_status || 'RESERVED';
+            let bgColor = "#3182ce"; // 기본(예약 완료): 파란색
+            let statusLabel = "예약완료";
+
+            if (currentStatus === 'ATTENDED') { bgColor = "#48bb78"; statusLabel = "출석완료"; }       // 출석 완료: 녹색
+            else if (currentStatus === 'EARLY_LEAVE') { bgColor = "#ed8936"; statusLabel = "조퇴"; }   // 조퇴: 황색/오렌지색
+            else if (currentStatus === 'ABSENT') { bgColor = "#4a5568"; statusLabel = "결석"; }        // 결석: 어두운 회색
+            else if (currentStatus === 'NOSHOW') { bgColor = "#e53e3e"; statusLabel = "노쇼"; }        // 노쇼: 붉은색
+
+            cellEl.style.background = bgColor;
+            cellEl.style.color = "#ffffff";
+            cellEl.style.border = "1px solid rgba(0,0,0,0.1)";
+            cellEl.style.cursor = "pointer";
+            cellEl.style.boxShadow = "0 2px 4px rgba(0,0,0,0.05)";
+            
+            // 호버 인터랙션 추가 효과
+            cellEl.onmouseover = () => { cellEl.style.transform = "scale(1.04)"; cellEl.style.boxShadow = "0 4px 8px rgba(0,0,0,0.15)"; };
+            cellEl.onmouseout = () => { cellEl.style.transform = "scale(1)"; cellEl.style.boxShadow = "0 2px 4px rgba(0,0,0,0.05)"; };
+
+            // 이용 시간대 뷰어 라벨 가공
+            let timeLabel = roomTypeParam;
+            if (roomTypeParam === '야자1') timeLabel = '야1';
+            if (roomTypeParam === '야자2') timeLabel = '야2';
+
+            // [출력 요구사항 반영]: 좌석 크기 내부 한도 최대 텍스트 사이즈 적용 
+            // 정보: [좌석 번호], [예약자 학번], [예약자 이름], [이용 시간대 (8교시 / 야1 / 야2)]
+            cellEl.innerHTML = `
+                <div style="font-weight: 900; font-size: 1.25rem; line-height: 1.0; margin-bottom: 2px;">${i}</div>
+                <div style="font-size: 0.78rem; font-weight: 800; background: rgba(0,0,0,0.15); padding: 1px 4px; border-radius: 3px; letter-spacing: -0.3px;">${reservation.student_id}</div>
+                <div style="font-weight: bold; font-size: 0.92rem; margin: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; text-shadow: 0 1px 2px rgba(0,0,0,0.2);">${reservation.name}</div>
+                <div style="font-size: 0.72rem; font-weight: 800; background: rgba(255,255,255,0.22); color: #fff; padding: 1px 4px; border-radius: 10px; margin-top: 1px; display: inline-block;">${timeLabel}:${statusLabel}</div>
+            `;
+
+            const targetPayload = { day: dayParam, seatId: seatIdString, roomType: roomTypeParam };
+
+            // -------------------------------------------------------------
+            // 3. PC & 모바일 하이브리드 출결 UI/UX 제스처 구현 세션
+            // -------------------------------------------------------------
+
+            // ① 일반 클릭 (PC 마우스 왼쪽 클릭 및 오클릭 방지 토글)
+            cellEl.addEventListener('click', (e) => {
+                if (e.button === 2) return; // 마우스 우클릭인 경우 일반 토글 액션 무시
+                e.stopPropagation();
+                
+                // 만약 모바일 롱프레스가 터치엔드 단계에서 일반 클릭으로 중복 오동작하는 상황을 필터링
+                if (isLongPressTriggered) {
+                    isLongPressTriggered = false;
+                    return;
+                }
+
+                // [실수 방지 팁]: 출석완료(녹색, ATTENDED) 상태이면 다시 예약완료(기본색, RESERVED) 처리, 그 외에는 즉시 녹색(ATTENDED) 변경
+                const nextStatus = (currentStatus === 'ATTENDED') ? 'RESERVED' : 'ATTENDED';
+                executeDirectToggle(dayParam, seatIdString, nextStatus, roomTypeParam);
+            });
+
+            // ② PC 환경 마우스 오른쪽 클릭 처리 (컨텍스트 메뉴 차단 후 미니 메뉴 팝업)
+            cellEl.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                openAttendanceContextMenu(e.pageX, e.pageY, targetPayload);
+            });
+
+            // ② 모바일 환경: 1초(950ms) 롱프레스 터치 디텍션 처리
+            cellEl.addEventListener('touchstart', (e) => {
+                isLongPressTriggered = false;
+                if(longPressTimer) clearTimeout(longPressTimer);
+                
+                longPressTimer = setTimeout(() => {
+                    isLongPressTriggered = true;
+                    const touch = e.touches[0];
+                    openAttendanceContextMenu(touch.pageX, touch.pageY, targetPayload);
+                }, 950);
+            }, { passive: true });
+
+            cellEl.addEventListener('touchend', () => { if(longPressTimer) clearTimeout(longPressTimer); });
+            cellEl.addEventListener('touchmove', () => { if(longPressTimer) clearTimeout(longPressTimer); });
+
+            canvas.appendChild(cellEl);
+        }
+    } catch (err) {
+        canvas.innerHTML = '<p style="grid-column: span 10; text-align:center; padding:20px; font-size:0.9rem; color:#e53e3e; font-weight:bold;">❌ 동적 배치 데이터를 파싱해오지 못했습니다.</p>';
+    }
+}
+
+// 실시간 원클릭 백엔드 다이렉트 트랜잭션 전송기
+async function executeDirectToggle(day, seatId, nextStatus, roomType) {
+    const token = localStorage.getItem('salesio_token') || '';
+    try {
+        const res = await fetch('/api/admin/attendance-update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ day, seatId, status: nextStatus })
+        });
+        if (res.ok) {
+            loadAttendanceGrid(day, roomType); // 데이터 완결 확인 후 격자 무상태 부분 리렌더링
+        }
+    } catch (err) { console.error('원클릭 출결 통신 장애:', err); }
+}
+
+// 미니 컨텍스트 메뉴 디스플레이 포지셔닝 함수
+function openAttendanceContextMenu(pageX, pageY, payload) {
+    currentActiveAttendanceTarget = payload;
+    const menu = document.getElementById('attendance-context-menu');
+    if(!menu) return;
+    
+    menu.style.left = `${pageX}px`;
+    menu.style.top = `${pageY}px`;
+    menu.style.display = 'block';
+    
+    // 바깥 영역 터치/클릭 시 해제를 위한 글로벌 리스너 일시 위임
+    setTimeout(() => window.addEventListener('click', closeAttendanceContextMenuOutside), 50);
+}
+
+function closeAttendanceContextMenuOutside() {
+    const menu = document.getElementById('attendance-context-menu');
+    if(menu) menu.style.display = 'none';
+    window.removeEventListener('click', closeAttendanceContextMenuOutside);
+}
+
+// 특이사항 세부 메뉴 이벤트 디스패처 ([조퇴], [결석], [노쇼 경고], [초기화])
+async function executeAttendanceAction(targetStatus) {
+    if (!currentActiveAttendanceTarget) return;
+    const { day, seatId, roomType } = currentActiveAttendanceTarget;
+    const token = localStorage.getItem('salesio_token') || '';
+    try {
+        const res = await fetch('/api/admin/attendance-update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ day, seatId, status: targetStatus })
+        });
+        if (res.ok) {
+            loadAttendanceGrid(day, roomType); // 상태 변경 즉시 실시간 리로드 반영
+        }
+    } catch (err) { console.error('특이사항 처리 에러:', err); }
+}
 async function submitAdminAction(actionType) {
     if(!currentSelectedStudentForAdmin) return;
     
