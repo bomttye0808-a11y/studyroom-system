@@ -34,27 +34,6 @@ const verifyAdmin = (req, res, next) => {
         next();
     });
 };
-// [보안 미들웨어] 백엔드 제로 트러스트 관리자 검증 시스템 구축 (JWT 해독 기반 교차 검증)
-const verifyAdmin = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-
-    if (!token) {
-        return res.status(401).json({ message: '인증 토큰이 누락되었습니다.' });
-    }
-
-    jwt.verify(token, JWT_SECRET, (err, decoded) => {
-        if (err) {
-            return res.status(403).json({ message: '유효하지 않거나 만료된 토큰입니다.' });
-        }
-        // 제로트러스트 핵심 포인트: studentId 디코딩 값이 무조건 'salesio' 명단과 일치해야 통과
-        if (decoded.studentId !== 'salesio') {
-            return res.status(403).json({ message: '접근 권한이 없습니다. 관리자만 이용 가능합니다.' });
-        }
-        req.user = decoded;
-        next();
-    });
-};
 
 // 600명 동시 접속 통제를 위한 대규모 커넥션 풀 구축
 const pool = mysql.createPool({
