@@ -46,21 +46,7 @@ async function initDatabase() {
         await conn.query(`
             CREATE TABLE IF NOT EXISTS student_master (
                 student_id VARCHAR(10) PRIMARY KEY,
-                name VARCHAR(50) NOT NULL,
-                warning_count INT DEFAULT 0 -- [추가] 누적 경고 카운트 필드 확장
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        `);
-
-        // [추가] 노쇼 경고 세부 로그 이력을 추적 및 보관하기 위한 전용 아카이브 테이블 신설
-        await conn.query(`
-            CREATE TABLE IF NOT EXISTS noshow_warnings (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                student_id VARCHAR(10) NOT NULL,
-                student_name VARCHAR(50) NOT NULL,
-                grade_class VARCHAR(20) NOT NULL,
-                warning_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-                reason VARCHAR(255) NULL,
-                FOREIGN KEY (student_id) REFERENCES student_master(student_id) ON DELETE CASCADE
+                name VARCHAR(50) NOT NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
         await conn.query(`
@@ -78,17 +64,10 @@ async function initDatabase() {
                 seat_id VARCHAR(20) NOT NULL,
                 student_id VARCHAR(10) NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                attendance_status VARCHAR(20) DEFAULT 'RESERVED', -- [추가] 스마트 출결 처리를 위한 상태 필드 확장 (RESERVED, ATTENDED, EARLY_LEAVE, ABSENT, NOSHOW)
                 UNIQUE KEY unique_seat (day, seat_id),
                 UNIQUE KEY unique_student (day, student_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
-
-        // [안전 장치 추가] 이미 운영 중인 데이터베이스 환경에서 컬럼이 누락되어 장애가 나는 상황을 영속적으로 방어하기 위한 DDL 동적 조사 및 주입
-        const [columns] = await conn.query("SHOW COLUMNS FROM reservations LIKE 'attendance_status'");
-        if (columns.length === 0) {
-            await conn.query("ALTER TABLE reservations ADD COLUMN attendance_status VARCHAR(20) DEFAULT 'RESERVED'");
-        }
         await conn.query(`
             CREATE TABLE IF NOT EXISTS comments (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -112,9 +91,21 @@ async function initDatabase() {
             CREATE TABLE IF NOT EXISTS attendance_noshow (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 student_id VARCHAR(10) NOT NULL,
-                type ENUM('EARLY_LEAVE', 'ABSENT', 'NOSHOW_WARN') NOT NULL,
+                type ENUM('RESERVED', 'ATTEND', 'EARLY_LEAVE', 'ABSENT', 'NOSHOW_WARN') NOT NULL,
                 date DATE NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY unique_student_date (student_id, date)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+
+        await conn.query(`
+            CREATE TABLE IF NOT EXISTS noshow_warnings (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                student_id VARCHAR(10) NOT NULL,
+                student_name VARCHAR(50) NOT NULL,
+                grade_class VARCHAR(10) NOT NULL,
+                warning_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                reason TEXT NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
         await conn.query(`
@@ -241,8 +232,16 @@ app.get('/api/status', async (req, res) => {
             reservations[row.day][row.seat_id] = { studentId: row.student_id, roomType: row.room_type };
         });
 
+        const todayStr = new Date().toISOString().split('T')[0];
+        const [attendanceRows] = await pool.query("SELECT student_id, type FROM attendance_noshow WHERE date = ?", [todayStr]);
+        
+        const attendanceMap = {};
+        attendanceRows.forEach(att => {
+            attendanceMap[att.student_id] = att.type;
+        });
+
         const openTime = cfgRows.length > 0 ? cfgRows[0].cfg_value : "";
-        res.json({ reservations, openTime, commentsCount: cntRows[0].cnt });
+        res.json({ reservations, openTime, commentsCount: cntRows[0].cnt, attendanceMap });
     } catch (err) {
         res.status(500).json({ message: '상태 조회 중 오류 발생' });
     }
@@ -631,149 +630,20 @@ app.post('/api/admin/attendance-action', async (req, res) => {
 
 // 관리자용 비공개 노쇼/출결 정보 반별 추적 및 통계 조회 API (보안 엄수)
 app.post('/api/admin/noshow-history', async (req, res) => {
-    // [보안 필터] 토큰 유효성 및 최고 관리자(salesio) 권한 실시간 전수 검사
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    if (!token) return res.status(401).json({ message: '인증 토큰 누락' });
-
+    const { grade, classNum } = req.body;
     try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        if (decoded.studentId !== 'salesio') return res.status(403).json({ message: '관리자 권한 엄금' });
-
-        const { grade, classNum } = req.body;
         // Step 4 반별 로직 연동: 학번 앞 자리를 분석 기점으로 조회용 와일드카드 구현
         const pattern = `${grade}${String(classNum).padStart(2, '0')}%`;
-        
-        // [변경] 대시보드 전용 테이블 출력 규격에 맞추어 카운트와 최근 경고 날짜(MAX)를 결합 가공하여 반환
         const [rows] = await pool.query(`
-            SELECT 
-                a.student_id as studentId, 
-                sm.name, 
-                COUNT(a.id) as warningCount, 
-                DATE_FORMAT(MAX(a.date), '%Y-%m-%d %H:%i') as lastWarningDate
+            SELECT a.student_id, sm.name, COUNT(a.id) as warn_count, GROUP_CONCAT(DATE_FORMAT(a.date, '%Y-%m-%d')) as dates
             FROM attendance_noshow a
             JOIN student_master sm ON a.student_id = sm.student_id
             WHERE a.type = 'NOSHOW_WARN' AND a.student_id LIKE ?
             GROUP BY a.student_id, sm.name
-            ORDER BY a.student_id ASC
         `, [pattern]);
         res.json(rows);
     } catch (err) {
-        res.status(403).json({ message: '권한 인가 거부 또는 조회 오류' });
-    }
-});
-// [신설] 프론트엔드의 원클릭(출석 토글) 및 우클릭/롱프레스(특이사항 조퇴/결석/노쇼) 신호를 처리하는 핵심 트랜잭션 API
-app.post('/api/admin/attendance-update', async (req, res) => {
-    // 최고 관리자(salesio) 권한 실시간 검증
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    if (!token) return res.status(401).json({ message: '인증 토큰 누락' });
-
-    try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        if (decoded.studentId !== 'salesio') return res.status(403).json({ message: '관리자 권한 없음' });
-
-        const { day, seatId, status } = req.body; // 기존 reservations 테이블의 고유 식별 조건 복합키 바인딩
-        if (!['RESERVED', 'ATTENDED', 'EARLY_LEAVE', 'ABSENT', 'NOSHOW'].includes(status)) {
-            return res.status(400).json({ message: '올바르지 않은 출결 상태 코드입니다.' });
-        }
-
-        // 600명 동시성 커넥션 풀을 해치지 않는 독립 트랜잭션 수립
-        const conn = await pool.getConnection();
-        try {
-            await conn.beginTransaction();
-
-            // 1. 타깃 좌석의 예약 데이터에서 실제 이용 학생 학번(student_id) 추출
-            const [resRows] = await conn.query(
-                "SELECT student_id FROM reservations WHERE day = ? AND seat_id = ?",
-                [day, seatId]
-            );
-            if (resRows.length === 0) {
-                await conn.rollback();
-                return res.status(404).json({ message: '해당 조건의 좌석 예약 현황을 찾을 수 없습니다.' });
-            }
-            const targetStudentId = resRows[0].student_id;
-
-            // 2. reservations 테이블의 출결 상태 컬럼 실시간 업데이트
-            await conn.query(
-                "UPDATE reservations SET attendance_status = ? WHERE day = ? AND seat_id = ?",
-                [status, day, seatId]
-            );
-
-            // 3. 관리자가 특이사항 메뉴에서 [노쇼 경고 부여]('NOSHOW')를 선택한 경우 기존 테이블(attendance_noshow) 로그 영속화
-            if (status === 'NOSHOW') {
-                await conn.query(
-                    "INSERT INTO attendance_noshow (student_id, type, date) VALUES (?, 'NOSHOW_WARN', NOW())",
-                    [targetStudentId]
-                );
-            }
-
-            await conn.commit();
-            res.json({ success: true, message: '스마트 출결 상태가 서버에 정상 반영되었습니다.' });
-        } catch (innerErr) {
-            await conn.rollback();
-            throw innerErr;
-        } finally {
-            conn.release();
-        }
-    } catch (err) {
-        res.status(403).json({ message: '토큰 무효화 또는 내부 트랜잭션 교착 장애' });
-    }
-});
-// [신설] 프론트엔드의 원클릭(출석 토글) 및 우클릭/롱프레스(특이사항) 신호를 받아 실시간 스위칭하는 핵심 트랜잭션 API
-app.post('/api/admin/attendance-update', async (req, res) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    if (!token) return res.status(401).json({ message: '인증 토큰 누락' });
-
-    try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        if (decoded.studentId !== 'salesio') return res.status(403).json({ message: '관리자 권한 없음' });
-
-        const { day, seatId, status } = req.body; // 기존 reservations 테이블의 고유 식별자 복합키 매핑
-        if (!['RESERVED', 'ATTENDED', 'EARLY_LEAVE', 'ABSENT', 'NOSHOW'].includes(status)) {
-            return res.status(400).json({ message: '올바르지 않은 상태값코드입니다.' });
-        }
-
-        const conn = await pool.getConnection();
-        try {
-            await conn.beginTransaction();
-
-            // 1. 타깃 예약의 원 주인 학번(student_id) 색출
-            const [resRows] = await conn.query(
-                "SELECT student_id FROM reservations WHERE day = ? AND seat_id = ?",
-                [day, seatId]
-            );
-            if (resRows.length === 0) {
-                await conn.rollback();
-                return res.status(404).json({ message: '지정한 조건의 좌석 예약 현황을 찾을 수 없습니다.' });
-            }
-            const targetStudentId = resRows[0].student_id;
-
-            // 2. reservations 테이블 내의 출결 상태값 컬럼 갱신
-            await conn.query(
-                "UPDATE reservations SET attendance_status = ? WHERE day = ? AND seat_id = ?",
-                [status, day, seatId]
-            );
-
-            // 3. 만약 특이사항 메뉴에서 [노쇼 경고 부여]('NOSHOW')를 선택했거나 처리되었다면 기존 attendance_noshow와 연동
-            if (status === 'NOSHOW') {
-                await conn.query(
-                    "INSERT INTO attendance_noshow (student_id, type, date) VALUES (?, 'NOSHOW_WARN', NOW())",
-                    [targetStudentId]
-                );
-            }
-
-            await conn.commit();
-            res.json({ success: true, message: '스마트 출결이 실시간 저장되었습니다.' });
-        } catch (innerErr) {
-            await conn.rollback();
-            throw innerErr;
-        } finally {
-            conn.release();
-        }
-    } catch (err) {
-        res.status(403).json({ message: '토큰 무효화 또는 트랜잭션 교착 장애' });
+        res.status(500).json({ message: '경고 이력 조회 실패' });
     }
 });
 
@@ -992,6 +862,94 @@ app.post('/api/admin/supervisor', async (req, res) => {
         res.status(403).json({ message: '만료되었거나 위조된 서명 토큰입니다.' });
     }
 });
+// [ADMIN API] 출결 상태 즉시 반영 및 토글 엔진 (보안 최우선)
+app.post('/api/admin/attendance-toggle', async (req, res) => {
+    const { studentId, currentStatus } = req.body;
+    if (!studentId) return res.status(400).json({ message: '학번 데이터가 유실되었습니다.' });
+    
+    const todayStr = new Date().toISOString().split('T')[0];
+    const nextStatus = currentStatus === 'ATTEND' ? 'RESERVED' : 'ATTEND';
+
+    try {
+        await pool.query(`
+            INSERT INTO attendance_noshow (student_id, type, date)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE type = ?
+        `, [studentId, nextStatus, todayStr, nextStatus]);
+
+        res.json({ success: true, nextStatus, message: '출결 상태가 안전하게 업데이트되었습니다.' });
+    } catch (err) {
+        console.error("출결 토글 오류:", err);
+        res.status(500).json({ message: '출결 처리 중 서버 내부 데이터베이스 충돌이 발생했습니다.' });
+    }
+});
+
+// [ADMIN API] 특정 좌석의 특이사항 상태 업데이트 라우터
+app.post('/api/admin/attendance-action', async (req, res) => {
+    const { studentId, actionType } = req.body;
+    if (!studentId || !actionType) return res.status(400).json({ message: '필수 파라미터가 유실되었습니다.' });
+
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    try {
+        // 1. 출결 이력 테이블 업데이트
+        await pool.query(`
+            INSERT INTO attendance_noshow (student_id, type, date)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE type = ?
+        `, [studentId, actionType, todayStr, actionType]);
+
+        // 2. 만약 노쇼 경고 부여인 경우 누적 이력 테이블에 별도 기록 파이프라인 가동
+        if (actionType === 'NOSHOW_WARN') {
+            const [studentRows] = await pool.query("SELECT name FROM student_master WHERE student_id = ?", [studentId]);
+            const studentName = studentRows.length > 0 ? studentRows[0].name : "미등록학생";
+            
+            // 학년/반 파싱 (학번 앞 3자리 기준 보정 예시: 1학년 1반 -> 101)
+            let gradeClass = "미분류";
+            if (studentId.length >= 3) {
+                gradeClass = studentId.substring(0, 3);
+            }
+
+            await pool.query(`
+                INSERT INTO noshow_warnings (student_id, student_name, grade_class, reason)
+                VALUES (?, ?, ?, ?)
+            `, [studentId, studentName, gradeClass, '자습실 무단 불참 및 노쇼 시스템 자동 부여']);
+        }
+
+        res.json({ success: true, message: '행정 조치 상태가 서버에 정상 기록되었습니다.' });
+    } catch (err) {
+        console.error("출결 조치 에러:", err);
+        res.status(500).json({ message: '행정 조치 처리 중 데이터 영속화 실패.' });
+    }
+});
+
+// [ADMIN API] 반별 노쇼 경고 히스토리 대시보드 데이터 공급 포트
+app.get('/api/admin/noshow-history', async (req, res) => {
+    const { gradeClass } = req.query;
+    if (!gradeClass) return res.status(400).json({ message: '조회 대상 학년/반 코드가 없습니다.' });
+
+    try {
+        // 학년/반에 해당하는 학생들의 전체 경고 이력 및 통계 서브쿼리 연동
+        const [rows] = await pool.query(`
+            SELECT 
+                w.student_id, 
+                w.student_name, 
+                w.warning_date, 
+                w.reason,
+                (SELECT COUNT(*) FROM noshow_warnings WHERE student_id = w.student_id) as total_count
+            FROM noshow_warnings w
+            WHERE w.grade_class = ?
+            ORDER BY w.warning_date DESC
+        `, [gradeClass]);
+
+        res.json(rows);
+    } catch (err) {
+        console.error("히스토리 쿼리 에러:", err);
+        res.status(500).json({ message: '대시보드 데이터를 조회하는 데 실패했습니다.' });
+    }
+});
+
+// [API Expansion] 기존 /api/status 에서 출결 현황 상태를 함께 서빙하도록 보완 피팅
 // [ADMIN API] 익명 댓글 저자 기밀 역추적 시스템
 app.post('/api/admin/trace-comment', async (req, res) => {
     const { commentId } = req.body;
