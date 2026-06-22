@@ -503,17 +503,21 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
                     document.getElementById('main-page').style.display = 'block';
                     document.getElementById('user-display').textContent = `${data.name}님`;
 
-                    // 관리자 전용 인터페이스 노출 보장 처리
+                    // [안전 장치 적용] 요소가 존재할 때만 style을 제어하여 TypeError 원천 차단
+                    const adminTrigger = document.getElementById('admin-trigger-area');
+                    const adminSupervisor = document.getElementById('admin-supervisor-zone');
+                    const adminDashboard = document.getElementById('admin-noshow-dashboard');
+
                     if (studentId === 'salesio') {
-                        if(document.getElementById('admin-trigger-area')) document.getElementById('admin-trigger-area').style.display = 'block';
-                        if(document.getElementById('admin-supervisor-zone')) document.getElementById('admin-supervisor-zone').style.display = 'flex';
-                        if(document.getElementById('admin-noshow-dashboard')) document.getElementById('admin-noshow-dashboard').style.display = 'block';
+                        if (adminTrigger) adminTrigger.style.display = 'block';
+                        if (adminSupervisor) adminSupervisor.style.display = 'flex';
+                        if (adminDashboard) adminDashboard.style.display = 'block';
                         
                         if (typeof fetchNoshowHistory === 'function') fetchNoshowHistory();
                     } else {
-                        if(document.getElementById('admin-trigger-area')) document.getElementById('admin-trigger-area').style.display = 'none';
-                        if(document.getElementById('admin-supervisor-zone')) document.getElementById('admin-supervisor-zone').style.display = 'none';
-                        if(document.getElementById('admin-noshow-dashboard')) document.getElementById('admin-noshow-dashboard').style.display = 'none';
+                        if (adminTrigger) adminTrigger.style.display = 'none';
+                        if (adminSupervisor) adminSupervisor.style.display = 'none';
+                        if (adminDashboard) adminDashboard.style.display = 'none';
                     }
                     
                     await pollSystemStatus();
