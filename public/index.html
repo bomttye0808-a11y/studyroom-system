@@ -320,6 +320,18 @@
                     </table>
                 </div>
             </div>
+            <div class="admin-block">
+    <label>📊 [7] 요일별 실시간 출석체크 및 상태 변경 (관리자 전용)</label>
+    <div style="max-height:200px; overflow-y:auto; background:#fff; border:1px solid #ced4da; border-radius:4px; padding:10px;">
+        <table style="width:100%; font-size:0.8rem; text-align:center;">
+            <thead>
+                <tr><th>좌석</th><th>학번</th><th>이름</th><th>출결상태</th><th>변경</th></tr>
+            </thead>
+            <tbody id="admin-attendance-table-body">
+                </tbody>
+        </table>
+    </div>
+</div>
             <div id="admin-noshow-dashboard" style="display: none; background: #fff; padding: 20px; margin: 20px auto; max-width: 1650px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); box-sizing: border-box;">
     <h3 style="margin-top:0; color:#2c3e50; border-bottom:2px solid #e74c3c; padding-bottom:8px; display:flex; align-items:center; gap:8px;">
         🚨 학년/반별 노쇼 경고 누적 명단 대시보드
@@ -787,132 +799,60 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
             });
         }
 
-        // 실시간 예약 상태 매핑 및 출결 색상 마스크 동적 주입 코어 엔진
         function updateRealtimeSeatsUI() {
-            const currentDay = document.getElementById('day-picker').value;
-            const dayReservations = globalReservations[currentDay] || {};
+    const currentDay = document.getElementById('day-picker').value;
+    const dayReservations = globalReservations[currentDay] || {};
 
-            // 화면에 그려진 모든 좌석 박스를 추적
-            const seatNodes = document.querySelectorAll('[id^="seat-"]');
-            seatNodes.forEach(node => {
-                const seatId = node.id.replace('seat-', '');
-                const info = dayReservations[seatId];
-                
-                // [공통 복원] 배치도 스케일 보존을 위한 표준 사각형 격자 크기 강제 고정
-                node.style.width = "52px";  
-                node.style.height = "52px"; 
-                node.style.padding = "2px";
-                node.style.boxSizing = "border-box";
-                node.style.display = "flex";
-                node.style.flexDirection = "column";
-                node.style.alignItems = "center";
-                node.style.justifyContent = "center";
-                node.style.margin = "0";
+    const seatNodes = document.querySelectorAll('[id^="seat-"]');
+    seatNodes.forEach(node => {
+        const seatId = node.id.replace('seat-', '');
+        const info = dayReservations[seatId];
+        const isMaria = seatId.startsWith('M') || node.getAttribute('data-room') === 'maria';
 
-                const isMaria = seatId.startsWith('M') || node.getAttribute('data-room') === 'maria';
+        // 1. 예약이 되어 있는 좌석인 경우
+        if (info && info.studentId) {
+            const isMySeat = String(info.studentId).trim() === String(currentUser).trim();
 
-                // 해당 좌석에 예약 정보가 존재하는 경우 (안전하게 studentId 존재 여부까지 체크)
-                if (info && (info.studentId !== undefined && info.studentId !== null && info.studentId !== '')) {
-                    
-                    // 1. 관리자 뷰 (salesio 계정 로그인 시): 4대 데이터 강제 초소형 출력 + 정밀 색상
-                    if (currentUser === 'salesio') {
-                        let periodText = info.period || '';
-                        if (periodText === '8교시') periodText = '8';
-                        else if (periodText === '야자1') periodText = '야1';
-                        else if (periodText === '야자2') periodText = '야2';
-                        
-                        const displayName = info.name || info.studentName || '미상';
+            if (isMySeat) {
+                node.style.backgroundColor = '#74b9ff'; // 내 예약 좌석 (연파랑)
+                node.style.color = '#fff';
+                node.style.borderColor = '#0984e3';
+            } else {
+                node.style.backgroundColor = '#ff7675'; // 타인 예약 좌석 (연빨강)
+                node.style.color = '#fff';
+                node.style.borderColor = '#e74c3c';
+            }
+            
+            // 관리자든 학생이든 메인 배치도에서는 단순 이름/학번 정보만 마스킹 노출
+            if (currentUser === 'salesio') {
+                node.innerHTML = `<div style="font-size:10px;">${info.studentId}<br>${info.name || '예약'}</div>`;
+            } else {
+                node.innerHTML = `<span style="font-size:12px;">${seatId}</span>`;
+            }
 
-                        node.innerHTML = `
-                            <div style="font-size: 8px; transform: scale(0.92); line-height: 1.1; text-align: center; font-weight: bold; width: 100%; word-break: break-all;">
-                                ${info.studentId}<br>
-                                ${displayName}<br>
-                                ${seatId}<br>
-                                ${periodText}
-                            </div>
-                        `;
-
-                        // 관리자용 정밀 색상
-                        if (info.status === 'ATTENDED') {
-                            node.style.backgroundColor = '#2ecc71'; // 출석: 녹색
-                            node.style.color = '#fff';
-                            node.style.borderColor = '#27ae60';
-                        } else if (info.status === 'EARLY_LEAVE') {
-                            node.style.backgroundColor = '#e67e22'; // 조퇴: 황색
-                            node.style.color = '#fff';
-                            node.style.borderColor = '#d35400';
-                        } else if (info.status === 'ABSENT') {
-                            node.style.backgroundColor = '#7f8c8d'; // 결석: 회색
-                            node.style.color = '#fff';
-                            node.style.borderColor = '#6c7a7d';
-                        } else if (info.status === 'NOSHOW') {
-                            node.style.backgroundColor = '#e74c3c'; // 노쇼: 붉은색
-                            node.style.color = '#fff';
-                            node.style.borderColor = '#c0392b';
-                        } else {
-                            node.style.backgroundColor = '#3498db'; // 일반 예약완료: 파란색
-                            node.style.color = '#fff';
-                            node.style.borderColor = '#2980b9';
-                        }
-
-                        // 관리자 제어 이벤트
-                        node.onclick = (e) => {
-                            e.stopPropagation();
-                            if (typeof handleAdminSeatClick === 'function') handleAdminSeatClick(seatId);
-                        };
-                        node.oncontextmenu = (e) => {
-                            e.preventDefault(); e.stopPropagation();
-                            if (typeof openAdminContextPopup === 'function') openAdminContextPopup(e, seatId);
-                        };
-
-                    } else {
-                        // 2. 일반 학생 시야: 완벽한 정보 마스킹 및 단순화된 색상 배치
-                        // [트랜잭션 에러 원천 해결] toString()과 trim()을 사용해 완벽하게 문자열 일치 비교
-                        const isMySeat = String(info.studentId).trim() === String(currentUser).trim();
-
-                        if (isMySeat) {
-                            node.style.backgroundColor = '#3498db'; // 내 예약 좌석: 파란색
-                            node.style.color = '#fff';
-                            node.style.borderColor = '#2980b9';
-                        } else {
-                            node.style.backgroundColor = '#e74c3c'; // 타인 예약 좌석: 무조건 빨간색
-                            node.style.color = '#fff';
-                            node.style.borderColor = '#c0392b';
-                        }
-
-                        node.innerHTML = `<span style="font-size:12px; font-weight:bold;">${seatId}</span>`;
-                        
-                        // 학생은 빈 좌석이거나 내 좌석일 때만 이벤트가 정상 동작하도록 연동
-                        node.onclick = () => {
-                            if (typeof triggerSeatReservation === 'function') {
-                                triggerSeatReservation(seatId, isMaria ? 'MARIA' : 'AI');
-                            }
-                        };
-                        node.oncontextmenu = null;
-                    }
-                } else {
-                    // 3. 예약되지 않은 완전히 빈 좌석 처리 (학생/관리자 공통)
-                    if (isMaria) {
-                        node.style.backgroundColor = '#b2bec3'; // Maria실 빈좌석: 회색
-                        node.style.borderColor = '#7f8c8d';
-                    } else {
-                        node.style.backgroundColor = '#ffffff'; // AI실 빈좌석: 흰색
-                        node.style.borderColor = '#cbd5e1';
-                    }
-                    
-                    node.style.color = '#333';
-                    node.innerHTML = `<span style="font-size:12px; font-weight:bold;">${seatId}</span>`;
-
-                    node.onclick = () => {
-                        if (typeof triggerSeatReservation === 'function') {
-                            triggerSeatReservation(seatId, isMaria ? 'MARIA' : 'AI');
-                        }
-                    };
-                    node.oncontextmenu = null;
-                }
-            });
+        } else {
+            // 2. 완전히 빈 좌석인 경우
+            if (isMaria) {
+                node.style.backgroundColor = '#bdc3c7'; // MARIA실 기본 회색
+                node.style.borderColor = '#b2bec3';
+            } else {
+                node.style.backgroundColor = '#ffffff'; // AI실 기본 흰색
+                node.style.borderColor = '#dcdde1';
+            }
+            node.style.color = '#333';
+            node.innerHTML = `<span style="font-size:12px;">${seatId}</span>`;
         }
-        
+
+        // 클릭 이벤트 통합 (예약/취소 트리거만 단순 연결)
+        node.onclick = () => {
+            if (typeof triggerSeatReservation === 'function') {
+                triggerSeatReservation(seatId, isMaria ? 'MARIA' : 'AI');
+            }
+        };
+        node.oncontextmenu = null; // 메인 우클릭 메뉴 삭제
+    });
+}
+
         document.getElementById('day-picker').addEventListener('change', updateRealtimeSeatsUI);
         
         
