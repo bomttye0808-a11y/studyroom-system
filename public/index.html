@@ -218,13 +218,6 @@
         
             <div style="background: #fff; padding: 12px 20px; margin: 10px auto; max-width: 1650px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); display: flex; align-items: center; justify-content: space-between; box-sizing: border-box;">
     <div>
-        <span style="font-weight: bold; color: #2c3e50; margin-right: 10px;">📋 오늘의 야자 감독:</span>
-        <span id="supervisor-display-text" style="font-weight: bold; color: #e67e22; font-size: 1.1rem;">지정되지 않음</span>
-    </div>
-    <div id="admin-supervisor-zone" style="display: none; align-items: center; gap: 8px;">
-        <input type="text" id="supervisor-input" placeholder="감독 교사 이름 입력" style="padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; width: 140px;">
-        <button onclick="saveSupervisorName()" style="background: #2c3e50; color: #fff; padding: 6px 12px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.9rem;">감독 지정</button>
-    </div>
 </div>
 
 <script>
@@ -818,21 +811,18 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
 
                 const isMaria = seatId.startsWith('M') || node.getAttribute('data-room') === 'maria';
 
-                // 해당 좌석에 예약 정보가 존재하는 경우
-                if (info && info.studentId) {
+                // 해당 좌석에 예약 정보가 존재하는 경우 (안전하게 studentId 존재 여부까지 체크)
+                if (info && (info.studentId !== undefined && info.studentId !== null && info.studentId !== '')) {
                     
                     // 1. 관리자 뷰 (salesio 계정 로그인 시): 4대 데이터 강제 초소형 출력 + 정밀 색상
                     if (currentUser === 'salesio') {
-                        // 교시 정보 축약 매핑 (8, 야1, 야2 등)
                         let periodText = info.period || '';
                         if (periodText === '8교시') periodText = '8';
                         else if (periodText === '야자1') periodText = '야1';
                         else if (periodText === '야자2') periodText = '야2';
                         
-                        // 실선 이름 데이터 매핑 보장 (name 또는 studentName 둘 다 대응)
                         const displayName = info.name || info.studentName || '미상';
 
-                        // 학번, 이름, 좌석번호, 교시 무조건 강제 출력 (8px 초소형 폰트 뷰 연동)
                         node.innerHTML = `
                             <div style="font-size: 8px; transform: scale(0.92); line-height: 1.1; text-align: center; font-weight: bold; width: 100%; word-break: break-all;">
                                 ${info.studentId}<br>
@@ -842,17 +832,17 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
                             </div>
                         `;
 
-                        // 관리자 전용 정밀 출결 상태 다이내믹 색상 매핑
+                        // 관리자용 정밀 색상
                         if (info.status === 'ATTENDED') {
-                            node.style.backgroundColor = '#2ecc71'; // 출석 완료: 녹색
+                            node.style.backgroundColor = '#2ecc71'; // 출석: 녹색
                             node.style.color = '#fff';
                             node.style.borderColor = '#27ae60';
                         } else if (info.status === 'EARLY_LEAVE') {
-                            node.style.backgroundColor = '#e67e22'; // 조퇴: 황색/오렌지색
+                            node.style.backgroundColor = '#e67e22'; // 조퇴: 황색
                             node.style.color = '#fff';
                             node.style.borderColor = '#d35400';
                         } else if (info.status === 'ABSENT') {
-                            node.style.backgroundColor = '#7f8c8d'; // 결석: 어두운 회색
+                            node.style.backgroundColor = '#7f8c8d'; // 결석: 회색
                             node.style.color = '#fff';
                             node.style.borderColor = '#6c7a7d';
                         } else if (info.status === 'NOSHOW') {
@@ -860,12 +850,12 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
                             node.style.color = '#fff';
                             node.style.borderColor = '#c0392b';
                         } else {
-                            node.style.backgroundColor = '#3498db'; // 예약 완료 기본: 파란색
+                            node.style.backgroundColor = '#3498db'; // 일반 예약완료: 파란색
                             node.style.color = '#fff';
                             node.style.borderColor = '#2980b9';
                         }
 
-                        // 관리자 제어 이벤트 바인딩
+                        // 관리자 제어 이벤트
                         node.onclick = (e) => {
                             e.stopPropagation();
                             if (typeof handleAdminSeatClick === 'function') handleAdminSeatClick(seatId);
@@ -876,8 +866,8 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
                         };
 
                     } else {
-                        // 2. 일반 학생 시야: 철저한 익명성 격리 마스킹 및 요청 색상 처리
-                        // [트랜잭션 패치] 문자열 공백 및 대소문자 무관하도록 완전 일치 비교 처리 실행
+                        // 2. 일반 학생 시야: 완벽한 정보 마스킹 및 단순화된 색상 배치
+                        // [트랜잭션 에러 원천 해결] toString()과 trim()을 사용해 완벽하게 문자열 일치 비교
                         const isMySeat = String(info.studentId).trim() === String(currentUser).trim();
 
                         if (isMySeat) {
@@ -890,9 +880,9 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
                             node.style.borderColor = '#c0392b';
                         }
 
-                        // 학생 시야에서는 기존과 동일하게 심플한 좌석 레이블 고정
                         node.innerHTML = `<span style="font-size:12px; font-weight:bold;">${seatId}</span>`;
                         
+                        // 학생은 빈 좌석이거나 내 좌석일 때만 이벤트가 정상 동작하도록 연동
                         node.onclick = () => {
                             if (typeof triggerSeatReservation === 'function') {
                                 triggerSeatReservation(seatId, isMaria ? 'MARIA' : 'AI');
@@ -901,7 +891,7 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
                         node.oncontextmenu = null;
                     }
                 } else {
-                    // 3. 예약되지 않은 완전히 빈 좌석 처리 (학생/관리자 공통 가이드 라인)
+                    // 3. 예약되지 않은 완전히 빈 좌석 처리 (학생/관리자 공통)
                     if (isMaria) {
                         node.style.backgroundColor = '#b2bec3'; // Maria실 빈좌석: 회색
                         node.style.borderColor = '#7f8c8d';
