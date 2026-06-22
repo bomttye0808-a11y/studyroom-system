@@ -176,6 +176,17 @@
         <header>
             <div class="header-container">
                 <h2>🏫 자습실 통합 좌석 예약 시스템</h2>
+                
+                <div style="background: rgba(255, 255, 255, 0.15); padding: 6px 14px; border-radius: 6px; display: flex; align-items: center; gap: 8px; font-size: 0.95rem; color: #fff; margin: 0 15px;">
+                    <span style="font-weight: bold; display: flex; align-items: center; gap: 4px;">✍️ 오늘의 야자 감독 :</span>
+                    <span id="supervisor-text-container" style="font-weight: bold; color: #f1c40f;"></span>
+                    
+                    <div id="supervisor-admin-control-box" style="display: none; align-items: center; gap: 6px; margin-left: 5px;">
+                        <input type="text" id="supervisor-name-input" placeholder="이름 입력" style="padding: 3px 6px; border: none; border-radius: 4px; width: 90px; font-size: 0.85rem; color: #333;">
+                        <button onclick="commitSupervisorName()" style="background: #2ecc71; color: #fff; border: none; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.8rem;">등록</button>
+                    </div>
+                </div>
+
                 <div class="header-right">
                     <span class="board-trigger-btn" id="open-board-btn" title="익명 소통 게시판">💬</span>
                     <span class="board-trigger-btn" id="open-whisper-btn" title="관리자 1:1 귓속말">👂</span>
@@ -396,7 +407,66 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
         // 엔터 로그인 처리 트리거
         pInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') performLogin(); });
         document.getElementById('login-btn').addEventListener('click', performLogin);
+// [신설] 오늘의 야자 감독관 데이터를 백엔드 서버에서 비동기로 수신하여 화면에 표시하는 함수
+async function syncSupervisorDisplay() {
+    try {
+        const response = await fetch('/api/supervisor');
+        const result = await response.json();
+        
+        const textContainer = document.getElementById('supervisor-text-container');
+        const nameInput = document.getElementById('supervisor-name-input');
+        
+        // 야자 감독 데이터가 입력되어 있고 공백이 아닐 경우에만 "선생님"을 결합하여 출력
+        if (result.supervisorName && result.supervisorName.trim() !== "") {
+            textContainer.innerText = `${result.supervisorName} 선생님`;
+            if (currentUser === 'salesio' && nameInput) {
+                nameInput.value = result.supervisorName;
+            }
+        } else {
+            // 입력 안 한 상태에서는 가이드라인에 부합하도록 완벽하게 공백 빈칸으로 유지
+            textContainer.innerText = "";
+            if (currentUser === 'salesio' && nameInput) {
+                nameInput.value = "";
+            }
+        }
+    } catch (err) {
+        console.error("야자 감독 교사 데이터 바인딩 중 오류가 발생했습니다.");
+    }
+}
 
+// [신설] 최고 관리자가 야자 감독 입력 후 등록 버튼을 누르면 백엔드로 안전하게 반영을 요청하는 함수
+async function commitSupervisorName() {
+    const inputName = document.getElementById('supervisor-name-input').value;
+    
+    // 로컬스토리지나 세션 등 기존 시스템에 저장된 관리자 인증 헤더가 요구된다면 토큰을 가져옵니다.
+    const token = localStorage.getItem('salesio_token') || ''; 
+
+    try {
+        const response = await fetch('/api/admin/supervisor', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ supervisorName: inputName })
+        });
+
+        // 학생의 우회적인 API 호출 등 보안 예외 발생 시 실시간 차단 대응
+        if (response.status === 403 || response.status === 401) {
+            alert("⚠️ 권한 경고: 야자 감독 데이터를 변경할 권한이 존재하지 않습니다.");
+            location.reload();
+            return;
+        }
+
+        const data = await response.json();
+        if (data.success) {
+            alert("오늘의 야자 감독 선생님 정보가 정상 반영되었습니다.");
+            syncSupervisorDisplay(); // 성공 후 전용 컨테이너 실시간 리렌더링
+        }
+    } catch (err) {
+        alert("서버 통신 오류로 야자 감독 처리에 실패했습니다.");
+    }
+}
         async function performLogin() {
             const studentId = sInput.value.trim();
             const password = pInput.value.trim();
@@ -423,9 +493,16 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
             // 1. 오직 studentId가 'salesio'일 때만 완전히 관리자로 판단하여 메뉴 노출 보장
             if (studentId === 'salesio') {
                 document.getElementById('admin-trigger-area').style.display = 'block';
+                // [추가] 오늘의 야자 감독 입력 및 등록 버튼 박스를 관리자 화면에 활성화
+                document.getElementById('supervisor-admin-control-box').style.display = 'flex';
             } else {
                 document.getElementById('admin-trigger-area').style.display = 'none';
+                // [추가] 일반 학생일 경우에는 입력박스를 숨김 처리
+                document.getElementById('supervisor-admin-control-box').style.display = 'none';
             }
+                    
+            // [추가] 로그인 성공 시점에 오늘의 야자 감독관 이름을 서버에서 즉시 받아와 화면에 렌더링
+            syncSupervisorDisplay();
                     
                     // if (isAdminMode) {
 //     document.getElementById('open-whisper-btn').style.display = 'none';

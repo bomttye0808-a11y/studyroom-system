@@ -30,6 +30,19 @@ const pool = mysql.createPool({
 async function initDatabase() {
     const conn = await pool.getConnection();
     try {
+        // 오늘의 야자 감독 선생님 이름을 무중단 안전하게 영속화하기 위한 설정 메타 테이블 신설
+        await conn.query(`
+            CREATE TABLE IF NOT EXISTS system_config (
+                cfg_key VARCHAR(50) PRIMARY KEY,
+                cfg_value TEXT NULL
+            )
+        `);
+
+        // 초기 데이터가 없을 경우 가이드라인에 맞춰 빈 문자열('') 상태로 레코드 생성
+        await conn.query(`
+            INSERT IGNORE INTO system_config (cfg_key, cfg_value) VALUES ('supervisor_name', '')
+        `);
+
         await conn.query(`
             CREATE TABLE IF NOT EXISTS student_master (
                 student_id VARCHAR(10) PRIMARY KEY,
@@ -790,7 +803,45 @@ app.post('/api/admin/whispers-box', async (req, res) => {
         res.status(500).json({ message: '귓속말 수신 보드 로딩 실패' });
     }
 });
+// [PUBLIC API] 오늘의 야자 감독관 이름 조회 (학생 및 관리자 공통 호출 권한)
+app.get('/api/supervisor', async (req, res) => {
+    try {
+        const [rows] = await pool.query("SELECT cfg_value FROM system_config WHERE cfg_key = 'supervisor_name'");
+        const name = rows.length > 0 ? rows[0].cfg_value : "";
+        res.json({ supervisorName: name });
+    } catch (err) {
+        res.status(500).json({ message: '야자 감독 정보 조회 중 내부 서버 오류가 발생했습니다.' });
+    }
+});
 
+// [ADMIN API] 오늘의 야자 감독관 이름 저장 및 실시간 업데이트 (JWT 토큰 기반 제로 트러스트 검증 필수)
+app.post('/api/admin/supervisor', async (req, res) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({ message: '인증 토큰이 제공되지 않았습니다.' });
+    }
+
+    try {
+        // 복호화 및 유효 토큰 기밀성 검사
+        const decoded = jwt.verify(token, JWT_SECRET);
+        
+        // F12 개발자 도구 위조 우회 테러 방어: 오직 studentId 가 고유 관리자 계정('salesio')인 경우에만 인가 처리
+        if (decoded.studentId !== 'salesio') {
+            return res.status(403).json({ message: '접근 권한이 없습니다. 최고 보안 관리자 전용 기능입니다.' });
+        }
+
+        const { supervisorName } = req.body;
+        // 입력되지 않은 상태로 전송될 시 완벽하게 빈칸 처리를 유지하기 위해 예외 대입 구조 매핑
+        const savedValue = (supervisorName && supervisorName.trim() !== "") ? supervisorName.trim() : "";
+
+        await pool.query("UPDATE system_config SET cfg_value = ? WHERE cfg_key = 'supervisor_name'", [savedValue]);
+        res.json({ success: true, message: '오늘의 야자 감독 데이터가 서버에 정상 기록되었습니다.' });
+    } catch (err) {
+        res.status(403).json({ message: '만료되었거나 위조된 서명 토큰입니다.' });
+    }
+});
 // [ADMIN API] 익명 댓글 저자 기밀 역추적 시스템
 app.post('/api/admin/trace-comment', async (req, res) => {
     const { commentId } = req.body;
