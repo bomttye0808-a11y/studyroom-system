@@ -547,7 +547,7 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
             if(document.getElementById('admin-noshow-dashboard')) document.getElementById('admin-noshow-dashboard').style.display = 'none';
         });
 
-        // 실시간 3초 폴링 루틴
+        // 실시간 3초 폴링 루틴 (안전형 구조)
         async function pollSystemStatus() {
             if (!currentUser) return;
             try {
@@ -560,8 +560,14 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
                 globalReservations = data.reservations;
                 systemOpenTime = data.openTime;
                 
+                // [수정 및 방어 코드] updateSupervisorUI 함수가 있으면 실행하고, 없으면 직접 ID를 찾아 텍합 처리
                 if (typeof updateSupervisorUI === 'function') {
                     updateSupervisorUI(data.supervisorName);
+                } else {
+                    const supervisorDisplay = document.getElementById('supervisor-display-text');
+                    if (supervisorDisplay) {
+                        supervisorDisplay.innerText = data.supervisorName || "지정되지 않음";
+                    }
                 }
 
                 updateTimelineClock();
@@ -572,6 +578,35 @@ document.getElementById('pw-toggle').addEventListener('click', function() {
         }
         setInterval(pollSystemStatus, 3000);
 
+        // [추가] 만약 다른 곳에서 호출할 경우를 대비한 야자감독 UI 업데이트 함수 명시적 정의
+        function updateSupervisorUI(name) {
+            const supervisorDisplay = document.getElementById('supervisor-display-text');
+            if (supervisorDisplay) {
+                supervisorDisplay.innerText = name || "지정되지 않음";
+            }
+        }
+        
+        // [추가] 야자 감독 이름을 서버에 저장하는 함수 (버튼 연동용)
+        async function saveSupervisorName() {
+            const inputVal = document.getElementById('supervisor-input')?.value.trim();
+            if(!inputVal) return alert('감독 교사 이름을 입력하세요.');
+            try {
+                const res = await fetch('/api/admin/supervisor', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ supervisorName: inputVal })
+                });
+                const data = await res.json();
+                if(data.success) {
+                    alert('야자 감독 교사가 지정되었습니다.');
+                    updateSupervisorUI(inputVal);
+                } else {
+                    alert('저장에 실패했습니다.');
+                }
+            } catch(e) {
+                alert('서버 통신 중 오류가 발생했습니다.');
+            }
+        }
         // 카운트다운 타이머 엔진
         function updateTimelineClock() {
             const clock = document.getElementById('countdown-clock');
