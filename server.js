@@ -13,27 +13,6 @@ const JWT_SECRET = process.env.JWT_SECRET || 'salesio_secret_key_2026_!@';
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
-// [보안 미들웨어] 백엔드 제로 트러스트 관리자 검증 시스템 구축 (JWT 해독 기반 교차 검증)
-const verifyAdmin = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-
-    if (!token) {
-        return res.status(401).json({ message: '인증 토큰이 누락되었습니다.' });
-    }
-
-    jwt.verify(token, JWT_SECRET, (err, decoded) => {
-        if (err) {
-            return res.status(403).json({ message: '유효하지 않거나 만료된 토큰입니다.' });
-        }
-        // 제로트러스트 핵심 포인트: studentId 디코딩 값이 무조건 'salesio' 명단과 일치해야 통과
-        if (decoded.studentId !== 'salesio') {
-            return res.status(403).json({ message: '접근 권한이 없습니다. 관리자만 이용 가능합니다.' });
-        }
-        req.user = decoded;
-        next();
-    });
-};
 
 // 600명 동시 접속 통제를 위한 대규모 커넥션 풀 구축
 const pool = mysql.createPool({
@@ -51,45 +30,11 @@ const pool = mysql.createPool({
 async function initDatabase() {
     const conn = await pool.getConnection();
     try {
-        // 야자 감독 교사 이름 저장용 메타 테이블 수립
-        await conn.query(`
-            CREATE TABLE IF NOT EXISTS system_config (
-                cfg_key VARCHAR(50) PRIMARY KEY,
-                cfg_value TEXT NULL
-            )
-        `);
-        
-        // 초기 데이터 삽입
-        await conn.query(`
-            INSERT IGNORE INTO system_config (cfg_key, cfg_value) VALUES ('supervisor_name', '')
-        `);
-
-        // 예약 테이블 내 출결 상태 컬럼 유무 확인 및 확장
-        const [columns] = await conn.query("SHOW COLUMNS FROM reservations LIKE 'attendance_status'");
-        if (columns.length === 0) {
-            await conn.query("ALTER TABLE reservations ADD COLUMN attendance_status VARCHAR(20) DEFAULT 'RESERVED'");
-        }
-
-        // 노쇼 경고 누적 이력 관리 영속성 아키텍처 신설
-        await conn.query(`
-            CREATE TABLE IF NOT EXISTS noshow_warnings (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                student_id VARCHAR(10) NOT NULL,
-                student_name VARCHAR(50) NOT NULL,
-                grade_class VARCHAR(20) NOT NULL,
-                warning_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                reason VARCHAR(255) NULL,
-                INDEX idx_grade_class (grade_class)
-            )
-        `);
-
         await conn.query(`
             CREATE TABLE IF NOT EXISTS student_master (
                 student_id VARCHAR(10) PRIMARY KEY,
-                name VARCHAR(50) NOT NULL,
-                password VARCHAR(255) NOT NULL,
-                is_admin TINYINT DEFAULT 0
-            )
+                name VARCHAR(50) NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
         await conn.query(`
             CREATE TABLE IF NOT EXISTS passwords (
@@ -102,39 +47,13 @@ async function initDatabase() {
             CREATE TABLE IF NOT EXISTS reservations (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 day VARCHAR(20) NOT NULL,
+                room_type VARCHAR(20) NOT NULL,
                 seat_id VARCHAR(20) NOT NULL,
                 student_id VARCHAR(10) NOT NULL,
-                room_type VARCHAR(20) NOT NULL,
-                attendance_status VARCHAR(20) DEFAULT 'RESERVED',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE KEY unique_seat (day, seat_id)
-            )
-        `);
-
-        // 야자 감독 교사 이름 저장용 설정 메타 테이블 수립
-        await conn.query(`
-            CREATE TABLE IF NOT EXISTS system_config (
-                cfg_key VARCHAR(50) PRIMARY KEY,
-                cfg_value TEXT NULL
-            )
-        `);
-        
-        // 초기 공백 데이터 삽입 (존재하지 않을 때만)
-        await conn.query(`
-            INSERT IGNORE INTO system_config (cfg_key, cfg_value) VALUES ('supervisor_name', '')
-        `);
-
-        // 노쇼 경고 누적 이력 관리 영속성 아키텍처 신설
-        await conn.query(`
-            CREATE TABLE IF NOT EXISTS noshow_warnings (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                student_id VARCHAR(10) NOT NULL,
-                student_name VARCHAR(50) NOT NULL,
-                grade_class VARCHAR(20) NOT NULL,
-                warning_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                reason VARCHAR(255) NULL,
-                INDEX idx_grade_class (grade_class)
-            )
+                UNIQUE KEY unique_seat (day, seat_id),
+                UNIQUE KEY unique_student (day, student_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
         await conn.query(`
             CREATE TABLE IF NOT EXISTS comments (
@@ -275,65 +194,21 @@ async function getAnonymousId(studentId) {
 
 // ================= [ 유저 전용 핵심 API 엔드포인트 ] =================
 
-// [API] 실시간 폴링 상태 일괄 결합 통합 뷰 데이터셋 반환 (보안 격리 및 야자감독 데이터 결합)
+// [API] 실시간 폴링 상태 일괄 결합 통합 뷰 데이터셋 반환
 app.get('/api/status', async (req, res) => {
     try {
-        // 보안 격리 검증: 요청 헤더에서 토큰을 추출하여 현재 사용자가 관리자(salesio)인지 식별합니다.
-        const authHeader = req.headers['authorization'];
-        const token = authHeader && authHeader.split(' ')[1];
-        let isAdmin = false;
-
-        if (token) {
-            try {
-                const decoded = jwt.verify(token, JWT_SECRET);
-                if (decoded.studentId === 'salesio') {
-                    isAdmin = true;
-                }
-            } catch (e) {
-                // 토큰 검증 실패 시 일반 학생 시야 권한 유지
-            }
-        }
-
-        // 데이터베이스 쿼리 변경: 출결 현황 관리를 위한 attendance_status 필드 추가 조회
-        const [resRows] = await pool.query("SELECT day, seat_id, room_type, student_id, attendance_status FROM reservations");
-        const [cfgRows] = await pool.query("SELECT cfg_key, cfg_value FROM system_config WHERE cfg_key IN ('open_time', 'supervisor_name')");
+        const [resRows] = await pool.query("SELECT day, seat_id, room_type, student_id FROM reservations");
+        const [cfgRows] = await pool.query("SELECT cfg_value FROM system_config WHERE cfg_key = 'open_time'");
         const [cntRows] = await pool.query("SELECT COUNT(*) as cnt FROM comments");
 
         const reservations = {};
         resRows.forEach(row => {
             if (!reservations[row.day]) reservations[row.day] = {};
-            
-            if (isAdmin) {
-                // 관리자 계정: 예약자 학번 및 출결 상태(status)까지 투명하게 일괄 노출
-                reservations[row.day][row.seat_id] = { 
-                    studentId: row.student_id, 
-                    roomType: row.room_type,
-                    status: row.attendance_status || 'RESERVED'
-                };
-            } else {
-                // 일반 학생: 프론트엔드 F12 해킹 및 개인정보 유출 원천 차단을 위해 studentId 공백 마스킹 및 상태값 잠금
-                reservations[row.day][row.seat_id] = { 
-                    studentId: '', 
-                    roomType: row.room_type,
-                    status: 'RESERVED'
-                };
-            }
+            reservations[row.day][row.seat_id] = { studentId: row.student_id, roomType: row.room_type };
         });
 
-        // 시스템 설정 맵 구성 (오픈시간 및 야자감독 교사명 추출)
-        let openTime = "";
-        let supervisorName = "";
-        cfgRows.forEach(cfg => {
-            if (cfg.cfg_key === 'open_time') openTime = cfg.cfg_value;
-            if (cfg.cfg_key === 'supervisor_name') supervisorName = cfg.cfg_value;
-        });
-
-        res.json({ 
-            reservations, 
-            openTime, 
-            supervisorName, // 프론트엔드 표기용 야자감독 명단 추가 반환
-            commentsCount: cntRows[0].cnt 
-        });
+        const openTime = cfgRows.length > 0 ? cfgRows[0].cfg_value : "";
+        res.json({ reservations, openTime, commentsCount: cntRows[0].cnt });
     } catch (err) {
         res.status(500).json({ message: '상태 조회 중 오류 발생' });
     }
@@ -899,152 +774,7 @@ app.post('/api/admin/set-censored', async (req, res) => {
         res.status(500).json({ message: '금지어 수립 실패' });
     }
 });
-// [PUBLIC API] 야자감독 이름 조회
-app.get('/api/supervisor', async (req, res) => {
-    try {
-        const [rows] = await pool.query("SELECT cfg_value FROM system_config WHERE cfg_key = 'supervisor_name'");
-        const name = rows.length > 0 ? rows[0].cfg_value : "";
-        res.json({ supervisorName: name });
-    } catch (err) {
-        res.status(500).json({ message: '야자감독 조회 실패' });
-    }
-});
 
-// [ADMIN API] 야자감독 이름 입력 및 업데이트
-app.post('/api/admin/supervisor', verifyAdmin, async (req, res) => {
-    const { supervisorName } = req.body;
-    try {
-        await pool.query("UPDATE system_config SET cfg_value = ? WHERE cfg_key = 'supervisor_name'", [supervisorName]);
-        res.json({ success: true, message: '야자감독 이름이 수립되었습니다.' });
-    } catch (err) {
-        res.status(500).json({ message: '야자감독 수립 실패' });
-    }
-});
-
-// [ADMIN API] 즉시 출석 및 원클릭 토글 제어 인터페이스
-app.post('/api/admin/attendance-toggle', verifyAdmin, async (req, res) => {
-    const { day, seatId } = req.body;
-    const conn = await pool.getConnection();
-    try {
-        await conn.beginTransaction();
-
-        // 현재 상태 확인
-        const [current] = await conn.query(
-            "SELECT attendance_status FROM reservations WHERE day = ? AND seat_id = ? FOR UPDATE",
-            [day, seatId]
-        );
-
-        if (current.length === 0) {
-            await conn.rollback();
-            return res.status(404).json({ message: '해당 예약 내역을 찾을 수 없습니다.' });
-        }
-
-        const currentStatus = current[0].attendance_status;
-        let nextStatus = 'ATTENDED';
-
-        // 실수 방지 토글 팁 적용: 이미 출석(ATTENDED) 상태이면 다시 예약완료(RESERVED) 상태로 회귀
-        if (currentStatus === 'ATTENDED') {
-            nextStatus = 'RESERVED';
-        }
-
-        await conn.query(
-            "UPDATE reservations SET attendance_status = ? WHERE day = ? AND seat_id = ?",
-            [nextStatus, day, seatId]
-        );
-
-        await conn.commit();
-        res.json({ success: true, status: nextStatus });
-    } catch (err) {
-        await conn.rollback();
-        res.status(500).json({ message: '출석 토글 트랜잭션 실패' });
-    } finally {
-        conn.release();
-    }
-});
-
-// [ADMIN API] 롱프레스/우클릭 전용 특이사항 및 노쇼 경고 누적 인터페이스
-app.post('/api/admin/noshow-warn', verifyAdmin, async (req, res) => {
-    const { day, seatId, actionType } = req.body; // actionType: 'EARLY_LEAVE', 'ABSENT', 'NOSHOW_WARN', 'RESET'
-    const conn = await pool.getConnection();
-    try {
-        await conn.beginTransaction();
-
-        // 1. 해당 예약 데이터 상세 분석
-        const [resRows] = await conn.query(
-            `SELECT r.student_id, sm.name 
-             FROM reservations r
-             JOIN student_master sm ON r.student_id = sm.student_id
-             WHERE r.day = ? AND r.seat_id = ? FOR UPDATE`,
-            [day, seatId]
-        );
-
-        if (resRows.length === 0) {
-            await conn.rollback();
-            return res.status(404).json({ message: '해당 대상자가 식별되지 않습니다.' });
-        }
-
-        const targetStudentId = resRows[0].student_id;
-        const targetStudentName = resRows[0].name;
-
-        // 5자리 학번 파싱 규칙 적용 (1번째 자리 학년, 2~3번째 자리 반)
-        const grade = targetStudentId.substring(0, 1);
-        const clazz = parseInt(targetStudentId.substring(1, 3), 10);
-        const gradeClassStr = `${grade}-${clazz}`;
-
-        let nextStatus = 'RESERVED';
-        if (actionType === 'EARLY_LEAVE') nextStatus = 'EARLY_LEAVE';
-        else if (actionType === 'ABSENT') nextStatus = 'ABSENT';
-        else if (actionType === 'NOSHOW_WARN') nextStatus = 'NOSHOW';
-        else if (actionType === 'RESET') nextStatus = 'RESERVED';
-
-        // 2. 예약 테이블의 상태값 변조 적용
-        await conn.query(
-            "UPDATE reservations SET attendance_status = ? WHERE day = ? AND seat_id = ?",
-            [nextStatus, day, seatId]
-        );
-
-        // 3. 노쇼 경고 부여 시 로그 아키텍처 테이블 기록
-        if (actionType === 'NOSHOW_WARN') {
-            await conn.query(
-                `INSERT INTO noshow_warnings (student_id, student_name, grade_class, reason) 
-                 VALUES (?, ?, ?, ?)`,
-                [targetStudentId, targetStudentName, gradeClassStr, `${day} 야자 노쇼 지정 조치`]
-            );
-        }
-
-        await conn.commit();
-        res.json({ success: true, status: nextStatus });
-    } catch (err) {
-        await conn.rollback();
-        res.status(500).json({ message: '특이사항 징계 마스킹 변경 에러' });
-    } finally {
-        conn.release();
-    }
-});
-
-// [ADMIN API] 대시보드 연동용 반별 노쇼 경고 누적 이력 리스트업 조회 API
-app.get('/api/admin/noshow-history', verifyAdmin, async (req, res) => {
-    const { grade, clazz } = req.query;
-    if (!grade || !clazz) {
-        return res.status(400).json({ message: '학년 및 반 파라미터가 누락되었습니다.' });
-    }
-    const targetGradeClass = `${grade}-${parseInt(clazz, 10)}`;
-    try {
-        // 반별 그룹화 및 누적 횟수(COUNT)와 최근 날짜 산출 정밀 쿼리 작성
-        const [rows] = await pool.query(
-            `SELECT student_id as studentId, student_name as name, COUNT(*) as count,
-                    DATE_FORMAT(MAX(warning_date), '%Y-%m-%d %H:%i') as latestDate
-             FROM noshow_warnings
-             WHERE grade_class = ?
-             GROUP BY student_id, student_name
-             ORDER BY student_id ASC`,
-            [targetGradeClass]
-        );
-        res.json(rows);
-    } catch (err) {
-        res.status(500).json({ message: '노쇼 이력 보드 로딩 실패' });
-    }
-});
 // [ADMIN API] 귓속말 민원 전수 검사 보드
 app.post('/api/admin/whispers-box', async (req, res) => {
     try {
@@ -1060,152 +790,7 @@ app.post('/api/admin/whispers-box', async (req, res) => {
         res.status(500).json({ message: '귓속말 수신 보드 로딩 실패' });
     }
 });
-// [PUBLIC API] 야자감독 이름 조회
-app.get('/api/supervisor', async (req, res) => {
-    try {
-        const [rows] = await pool.query("SELECT cfg_value FROM system_config WHERE cfg_key = 'supervisor_name'");
-        const name = rows.length > 0 ? rows[0].cfg_value : "";
-        res.json({ supervisorName: name });
-    } catch (err) {
-        res.status(500).json({ message: '야자감독 조회 실패' });
-    }
-});
 
-// [ADMIN API] 야자감독 이름 입력 및 업데이트
-app.post('/api/admin/supervisor', verifyAdmin, async (req, res) => {
-    const { supervisorName } = req.body;
-    try {
-        await pool.query("UPDATE system_config SET cfg_value = ? WHERE cfg_key = 'supervisor_name'", [supervisorName]);
-        res.json({ success: true, message: '야자감독 이름이 수립되었습니다.' });
-    } catch (err) {
-        res.status(500).json({ message: '야자감독 수립 실패' });
-    }
-});
-
-// [ADMIN API] 즉시 출석 및 원클릭 토글 제어 인터페이스
-app.post('/api/admin/attendance-toggle', verifyAdmin, async (req, res) => {
-    const { day, seatId } = req.body;
-    const conn = await pool.getConnection();
-    try {
-        await conn.beginTransaction();
-
-        // 현재 상태 확인
-        const [current] = await conn.query(
-            "SELECT attendance_status FROM reservations WHERE day = ? AND seat_id = ? FOR UPDATE",
-            [day, seatId]
-        );
-
-        if (current.length === 0) {
-            await conn.rollback();
-            return res.status(404).json({ message: '해당 예약 내역을 찾을 수 없습니다.' });
-        }
-
-        const currentStatus = current[0].attendance_status;
-        let nextStatus = 'ATTENDED';
-
-        // 실수 방지 토글 팁 적용: 이미 출석(ATTENDED) 상태이면 다시 예약완료(RESERVED) 상태로 회귀
-        if (currentStatus === 'ATTENDED') {
-            nextStatus = 'RESERVED';
-        }
-
-        await conn.query(
-            "UPDATE reservations SET attendance_status = ? WHERE day = ? AND seat_id = ?",
-            [nextStatus, day, seatId]
-        );
-
-        await conn.commit();
-        res.json({ success: true, status: nextStatus });
-    } catch (err) {
-        await conn.rollback();
-        res.status(500).json({ message: '출석 토글 트랜잭션 실패' });
-    } finally {
-        conn.release();
-    }
-});
-
-// [ADMIN API] 롱프레스/우클릭 전용 특이사항 및 노쇼 경고 누적 인터페이스
-app.post('/api/admin/noshow-warn', verifyAdmin, async (req, res) => {
-    const { day, seatId, actionType } = req.body; // actionType: 'EARLY_LEAVE', 'ABSENT', 'NOSHOW_WARN', 'RESET'
-    const conn = await pool.getConnection();
-    try {
-        await conn.beginTransaction();
-
-        // 1. 해당 예약 데이터 상세 분석
-        const [resRows] = await conn.query(
-            `SELECT r.student_id, sm.name 
-             FROM reservations r
-             JOIN student_master sm ON r.student_id = sm.student_id
-             WHERE r.day = ? AND r.seat_id = ? FOR UPDATE`,
-            [day, seatId]
-        );
-
-        if (resRows.length === 0) {
-            await conn.rollback();
-            return res.status(404).json({ message: '해당 대상자가 식별되지 않습니다.' });
-        }
-
-        const targetStudentId = resRows[0].student_id;
-        const targetStudentName = resRows[0].name;
-
-        // 5자리 학번 파싱 규칙 적용 (1번째 자리 학년, 2~3번째 자리 반)
-        const grade = targetStudentId.substring(0, 1);
-        const clazz = parseInt(targetStudentId.substring(1, 3), 10);
-        const gradeClassStr = `${grade}-${clazz}`;
-
-        let nextStatus = 'RESERVED';
-        if (actionType === 'EARLY_LEAVE') nextStatus = 'EARLY_LEAVE';
-        else if (actionType === 'ABSENT') nextStatus = 'ABSENT';
-        else if (actionType === 'NOSHOW_WARN') nextStatus = 'NOSHOW';
-        else if (actionType === 'RESET') nextStatus = 'RESERVED';
-
-        // 2. 예약 테이블의 상태값 변조 적용
-        await conn.query(
-            "UPDATE reservations SET attendance_status = ? WHERE day = ? AND seat_id = ?",
-            [nextStatus, day, seatId]
-        );
-
-        // 3. 노쇼 경고 부여 시 로그 아키텍처 테이블 기록
-        if (actionType === 'NOSHOW_WARN') {
-            await conn.query(
-                `INSERT INTO noshow_warnings (student_id, student_name, grade_class, reason) 
-                 VALUES (?, ?, ?, ?)`,
-                [targetStudentId, targetStudentName, gradeClassStr, `${day} 야자 노쇼 지정 조치`]
-            );
-        }
-
-        await conn.commit();
-        res.json({ success: true, status: nextStatus });
-    } catch (err) {
-        await conn.rollback();
-        res.status(500).json({ message: '특이사항 징계 마스킹 변경 에러' });
-    } finally {
-        conn.release();
-    }
-});
-
-// [ADMIN API] 대시보드 연동용 반별 노쇼 경고 누적 이력 리스트업 조회 API
-app.get('/api/admin/noshow-history', verifyAdmin, async (req, res) => {
-    const { grade, clazz } = req.query;
-    if (!grade || !clazz) {
-        return res.status(400).json({ message: '학년 및 반 파라미터가 누락되었습니다.' });
-    }
-    const targetGradeClass = `${grade}-${parseInt(clazz, 10)}`;
-    try {
-        // 반별 그룹화 및 누적 횟수(COUNT)와 최근 날짜 산출 정밀 쿼리 작성
-        const [rows] = await pool.query(
-            `SELECT student_id as studentId, student_name as name, COUNT(*) as count,
-                    DATE_FORMAT(MAX(warning_date), '%Y-%m-%d %H:%i') as latestDate
-             FROM noshow_warnings
-             WHERE grade_class = ?
-             GROUP BY student_id, student_name
-             ORDER BY student_id ASC`,
-            [targetGradeClass]
-        );
-        res.json(rows);
-    } catch (err) {
-        res.status(500).json({ message: '노쇼 이력 보드 로딩 실패' });
-    }
-});
 // [ADMIN API] 익명 댓글 저자 기밀 역추적 시스템
 app.post('/api/admin/trace-comment', async (req, res) => {
     const { commentId } = req.body;
