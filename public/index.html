@@ -139,18 +139,6 @@
         
         .logout-btn { color: #ff7675; cursor: pointer; margin-left: 15px; font-weight: bold; }
 
-        /* 출결 상태별 백그라운드 색상 정밀 스펙 정의 */
-        .status-reserved { background: #74b9ff !important; color: #fff !important; }
-        .status-attend { background: #2ecc71 !important; color: #fff !important; }
-        .status-early { background: #f39c12 !important; color: #fff !important; }
-        .status-absent { background: #7f8c8d !important; color: #fff !important; }
-        .status-noshow { background: #e74c3c !important; color: #fff !important; }
-
-        /* 대시보드 전용 스타일 */
-        .history-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.85rem; }
-        .history-table th, .history-table td { border: 1px solid #cbd5e0; padding: 8px; text-align: center; }
-        .history-table th { background: #f1f5f9; color: #334155; }
-
         /* 3. 모바일 기기 대응 반응형 폭 축소 레이아웃 추가 */
         @media (max-width: 768px) {
             .system-board-container { gap: 15px; width: 100%; overflow-x: hidden; }
@@ -322,35 +310,6 @@
                     </table>
                 </div>
             </div>
-            <div class="admin-block" style="margin-top:15px;">
-            <label><i class="fa-solid fa-chart-bar"></i> (8) 노쇼 경고 이력 및 반별 대시보드 관리</label>
-            <div style="display:flex; gap:10px; margin-bottom:10px;">
-                <select id="dashboard-grade-class" style="padding:6px; border-radius:4px; border:1px solid #ccc; flex:1;">
-                    <option value="101">1학년 1반</option>
-                    <option value="102">1학년 2반</option>
-                    <option value="201">2학년 1반</option>
-                    <option value="202">2학년 2반</option>
-                    <option value="301">3학년 1반</option>
-                    <option value="302">3학년 2반</option>
-                </select>
-                <button onclick="fetchNoshowDashboardHistory()" style="background:#34495e; color:#fff; border:none; padding:6px 15px; border-radius:4px; font-weight:bold; cursor:pointer;">경고 이력 조회</button>
-            </div>
-            <div style="max-height:200px; overflow-y:auto; background:#fff; border:1px solid #e2e8f0; border-radius:4px; padding:5px;">
-                <table class="history-table">
-                    <thead>
-                        <tr>
-                            <th>학번</th>
-                            <th>이름</th>
-                            <th>누적 횟수</th>
-                            <th>최근 경고 사유</th>
-                        </tr>
-                    </thead>
-                    <tbody id="noshow-dashboard-tbody">
-                        <tr><td colspan="4" style="color:#7f8c8d; text-align:center;">반을 선택한 뒤 조회 버튼을 눌러주세요.</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
         </div>
         <div class="ctrl-btns">
             <button style="background:#e74c3c; color:#fff;" id="admin-clear-btn">전체 요일 통합 예약 초기화</button>
@@ -399,6 +358,7 @@
         let currentUser = null;
         let currentUserName = "";
         let isAdminMode = false;
+        let currentSelectedStudentForAdmin = null; // 관리자가 제어하기 위해 클릭한 좌석의 학생 학번 임시 저장소
         let systemOpenTime = "";
         let globalReservations = {};
         let activeReplyParentId = null;
@@ -606,150 +566,12 @@ async function commitSupervisorName() {
         }
         setInterval(updateTimelineClock, 1000);
 
-        function buildMeshDOM(containerId, structure, roomType) {
-    const grid = document.getElementById(containerId);
-    if(!grid) return;
-    grid.innerHTML = '';
-
-    // 토큰 디코딩을 통해 관리자 여부 실시간 스태틱 판별
-    let isAdminActive = false;
-    const token = localStorage.getItem('salesio_token');
-    if (token) {
-        try {
-            const base64Url = token.split('.')[1];
-            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-            const payload = JSON.parse(window.atob(base64));
-            isAdminActive = (payload.studentId === 'salesio');
-        } catch (e) {
-            isAdminActive = false;
+        // 정밀 배치 바둑판 드로잉 모듈
+        function renderGrids() {
+            buildMeshDOM('ai-grid', AI_ROOM_STRUCTURE, 'AI');
+            buildMeshDOM('maria-grid', MARIA_ROOM_STRUCTURE, 'MARIA');
+            updateRealtimeSeatsUI();
         }
-    }
-
-    structure.forEach(row => {
-        row.forEach(seatId => {
-            const box = document.createElement('div');
-            box.className = 'seat-box';
-            
-            if(seatId === '통로' || seatId === '기둥' || seatId === 'X') {
-                box.classList.add('c-empty');
-                box.innerText = '';
-                grid.appendChild(box);
-                return;
-            }
-
-            box.id = `seat-${seatId}`;
-            
-            // 실시간 예약 데이터 풀 참조
-            const isReserved = currentMapData && currentMapData[seatId];
-
-            if (isReserved) {
-                const resInfo = currentMapData[seatId];
-                const studentId = resInfo.studentId;
-                const studentName = resInfo.name || ''; 
-                const periodText = resInfo.roomType || ''; 
-
-                // 1. 관리자 모드 전용 특수 드로잉 레이어 적용 (좌석 크기 불변 및 최대 크기 텍스트 보장)
-                if (isAdminActive) {
-                    box.innerHTML = `<div style="font-size:0.75rem; line-height:1.2; font-weight:bold; width:100%; height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; pointer-events:none;">
-                        <span>${seatId}</span>
-                        <span>${studentId}</span>
-                        <span>${studentName}</span>
-                        <span>${periodText}</span>
-                    </div>`;
-
-                    // 출결 테이블 연동 현황 색상 매핑
-                    const attStatus = (window.latestAttendanceMap && window.latestAttendanceMap[studentId]) || 'RESERVED';
-                    if (attStatus === 'RESERVED') box.classList.add('status-reserved');
-                    else if (attStatus === 'ATTEND') box.classList.add('status-attend');
-                    else if (attStatus === 'EARLY_LEAVE') box.classList.add('status-early');
-                    else if (attStatus === 'ABSENT') box.classList.add('status-absent');
-                    else if (attStatus === 'NOSHOW_WARN') box.classList.add('status-noshow');
-
-                    box.setAttribute('data-student-id', studentId);
-                    box.setAttribute('data-status', attStatus);
-
-                    // --- [관리자 전용 PC/모바일 하이브리드 제스처 엔진 바인딩] ---
-                    let touchTimer = null;
-
-                    // ① 일반 좌클릭 / 터치 -> 즉시 출석/예약 완료 상태 토글
-                    box.addEventListener('click', async (e) => {
-                        if (e.button !== 0) return;
-                        e.stopPropagation();
-                        const sId = box.getAttribute('data-student-id');
-                        const cStat = box.getAttribute('data-status') || 'RESERVED';
-                        
-                        try {
-                            const res = await fetch('/api/admin/attendance-toggle', {
-                                method: 'POST',
-                                headers: { 
-                                    'Content-Type': 'application/json',
-                                    'Authorization': `Bearer ${token}`
-                                },
-                                body: JSON.stringify({ studentId: sId, currentStatus: cStat })
-                            });
-                            const data = await res.json();
-                            if (data.success) {
-                                loadStatus(); // 영속성 데이터 즉시 동기화 리로드
-                            } else {
-                                alert(data.message);
-                            }
-                        } catch (err) {
-                            console.error(err);
-                        }
-                    });
-
-                    // ② PC 마우스 우클릭 -> 컨텍스트 특이사항 팝업 메뉴 연동
-                    box.addEventListener('contextmenu', (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const sId = box.getAttribute('data-student-id');
-                        if (typeof openAdminContextModal === 'function') {
-                            openAdminContextModal(sId, e.clientX, e.clientY);
-                        }
-                    });
-
-                    // ③ 모바일 1초 롱프레스 제스처 바인딩
-                    box.addEventListener('touchstart', (e) => {
-                        const sId = box.getAttribute('data-student-id');
-                        touchTimer = setTimeout(() => {
-                            const touch = e.touches[0];
-                            if (typeof openAdminContextModal === 'function') {
-                                openAdminContextModal(sId, touch.clientX, touch.clientY);
-                            }
-                        }, 1000);
-                    }, { passive: true });
-
-                    box.addEventListener('touchend', () => {
-                        if (touchTimer) clearTimeout(touchTimer);
-                    });
-
-                } else {
-                    // 2. 일반 학생 모드 뷰어 레이어
-                    box.innerText = seatId;
-                    if (studentId === currentLoginUser) {
-                        box.classList.add('c-mine');
-                    } else {
-                        box.classList.add('c-reserved');
-                    }
-                    box.addEventListener('click', () => {
-                        selectSeat(seatId, roomType);
-                    });
-                }
-            } else {
-                // 3. 빈 좌석 예약 가용 레이어
-                box.innerText = seatId;
-                if(roomType === 'MARIA') box.classList.add('c-maria-avail');
-                else box.classList.add('c-ai-avail');
-
-                box.addEventListener('click', () => {
-                    selectSeat(seatId, roomType);
-                });
-            }
-
-            grid.appendChild(box);
-        });
-    });
-}
 
         function buildMeshDOM(targetId, matrix, roomType) {
     const container = document.getElementById(targetId);
@@ -1393,26 +1215,17 @@ async function invokeQueueNotificationCheck(studentId) {
         });
         
     </script>
-    <div id="admin-control-modal" style="display:none; position:fixed; background:#fff; box-shadow:0 4px 15px rgba(0,0,0,0.2); border-radius:6px; z-index:3000; padding:10px; width:180px;">
-    <div style="display:flex; flex-direction:column; gap:6px;">
-        <button onclick="executeAdminAction('ATTEND')" style="background:#2ecc71; color:#fff; border:none; padding:8px; border-radius:4px; font-weight:bold; cursor:pointer;">출석 완료</button>
-        <button onclick="executeAdminAction('EARLY_LEAVE')" style="background:#e67e22; color:#fff; border:none; padding:8px; border-radius:4px; font-weight:bold; cursor:pointer;">조퇴 처리</button>
-        <button onclick="executeAdminAction('ABSENT')" style="background:#7f8c8d; color:#fff; border:none; padding:8px; border-radius:4px; font-weight:bold; cursor:pointer;">결석 처리</button>
-        <button onclick="executeAdminAction('NOSHOW_WARN')" style="background:#e74c3c; color:#fff; border:none; padding:8px; border-radius:4px; font-weight:bold; cursor:pointer;">⚠️ 노쇼 경고 부여</button>
-        <button onclick="executeAdminAction('RESERVED')" style="background:#3498db; color:#fff; border:none; padding:8px; border-radius:4px; font-weight:bold; cursor:pointer;">상태 초기화</button>
-        <button onclick="document.getElementById('admin-control-modal').style.display='none';" style="background:#bdc3c7; color:#333; border:none; padding:6px; border-radius:4px; cursor:pointer; margin-top:4px;">창 닫기</button>
+    <div id="admin-control-modal" class="admin-modal" style="display:none; width:350px;">
+    <h4>🛠️ 관리자 전용 좌석/출결 통제 시스템</h4>
+    <div style="display:flex; flex-direction:column; gap:10px; margin-top:15px;">
+        <button onclick="submitAdminAction('EARLY_LEAVE')" style="background:#e67e22; color:#fff; padding:10px; border:none; border-radius:4px; font-weight:bold; cursor:pointer;">조퇴 처리</button>
+        <button onclick="submitAdminAction('ABSENT')" style="background:#e74c3c; color:#fff; padding:10px; border:none; border-radius:4px; font-weight:bold; cursor:pointer;">결석 처리</button>
+        <button onclick="submitAdminAction('NOSHOW_WARN')" style="background:#d63031; color:#fff; padding:10px; border:none; border-radius:4px; font-weight:bold; cursor:pointer;">⚠️ 노쇼 경고 부여</button>
+        <button onclick="document.getElementById('admin-control-modal').style.display='none';" style="background:#7f8c8d; color:#fff; padding:8px; border:none; border-radius:4px; cursor:pointer; margin-top:5px;">닫기</button>
     </div>
 </div>
 
 <script>
-// 중복 선언 오류를 막기 위해 기존 let을 제거하고 이 위치에 딱 한 번만 정의합니다.
-if (typeof window.currentSelectedStudentForAdmin === 'undefined') {
-    window.currentSelectedStudentForAdmin = null;
-}
-
-// 변수를 바인딩하여 사용할 수 있도록 전역 래핑 매핑
-var currentSelectedStudentForAdmin = window.currentSelectedStudentForAdmin;
-
 async function submitAdminAction(actionType) {
     if(!currentSelectedStudentForAdmin) return;
     const res = await fetch('/api/admin/attendance-action', {
@@ -1429,111 +1242,6 @@ async function submitAdminAction(actionType) {
         document.getElementById('admin-control-modal').style.display = 'none';
     }
 }
-
-function openAdminContextModal(studentId, x, y) {
-    currentSelectedStudentForAdmin = studentId;
-    const modal = document.getElementById('admin-control-modal');
-    modal.style.display = 'block';
-    modal.style.left = `${x}px`;
-    modal.style.top = `${y}px`;
-}
-
-async function executeAdminAction(actionType) {
-    if (!currentSelectedStudentForAdmin) return;
-    const token = localStorage.getItem('salesio_token');
-    
-    try {
-        const res = await fetch('/api/admin/attendance-action', {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                studentId: currentSelectedStudentForAdmin,
-                actionType: actionType
-            })
-        });
-        const data = await res.json();
-        alert(data.message);
-        document.getElementById('admin-control-modal').style.display = 'none';
-        loadStatus(); // 화면 정밀 재동기화 아키텍처 실행
-    } catch (err) {
-        console.error(err);
-        alert('출결 행정 처리 연동 오류 발생');
-    }
-}
-
-async function fetchNoshowDashboardHistory() {
-    const gradeClass = document.getElementById('dashboard-grade-class').value;
-    const token = localStorage.getItem('salesio_token');
-    const tbody = document.getElementById('noshow-dashboard-tbody');
-    
-    try {
-        const res = await fetch(`/api/admin/noshow-history?gradeClass=${gradeClass}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (res.status === 403) {
-            alert('접근 권한이 없습니다. (보안 가이드라인 마킹 작동)');
-            return;
-        }
-        const data = await res.json();
-        tbody.innerHTML = '';
-        
-        if (data.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="4" style="color:#7f8c8d; text-align:center;">해당 반에는 누적된 노쇼 경고 학생이 없습니다.</td></tr>`;
-            return;
-        }
-
-        data.forEach(item => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>${item.student_id}</td>
-                <td>${item.student_name}</td>
-                <td><b style="color:#e74c3c;">${item.total_count}회</b></td>
-                <td style="text-align:left;">${item.reason || '없음'}</td>
-            `;
-            tbody.appendChild(tr);
-        });
-    } catch (err) {
-        console.error(err);
-        alert('대시보드 히스토리 뷰 로드 실패');
-    }
-}
-
-// 초기 로드 시점 글로벌 가변 주입 가상 바인딩
-window.isAdminModeActive = false;
-window.latestAttendanceMap = {};
-
-// 로그인 성공 핸들러 분기 보정 결합
-const originalLoadStatus = loadStatus;
-loadStatus = async function() {
-    // 세션 토큰 디코딩 후 관리자 모드 스태틱 활성화 연동
-    const token = localStorage.getItem('salesio_token');
-    if (token) {
-        try {
-            const base64Url = token.split('.')[1];
-            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-            const payload = JSON.parse(window.atob(base64));
-            window.isAdminModeActive = (payload.studentId === 'salesio');
-        } catch (e) {
-            window.isAdminModeActive = false;
-        }
-    }
-    
-    try {
-        const res = await fetch('/api/status');
-        const data = await res.json();
-        window.latestAttendanceMap = data.attendanceMap || {};
-    } catch (e) {
-        console.error(e);
-    }
-    
-    // 오리지널 맵 렌더러 파이프라인 트리거링
-    if (typeof originalLoadStatus === 'function') {
-        // 기존 상태 로드 로직 호환 처리 단계를 수동 매핑
-    }
-};
 </script>
 </body>
 </html>
